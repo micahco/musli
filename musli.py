@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 
+import argparse
+import glob
 import os
 import sqlite3
-import argparse
 from tinytag import TinyTag
 
 APP_NAME = 'musli'
@@ -69,14 +70,25 @@ def select_track(conn, path):
         return track
     return None
 
-def scan_library(dir_path, counter, conn):
-    for entry in os.scandir(dir_path):
-        if entry.is_dir(follow_symlinks=False):
-            scan_library(entry.path, counter, conn)
-        elif TinyTag.is_supported(entry.name):
-            track_path = os.path.join(dir_path, entry.name)
-            tag = TinyTag.get(track_path)
+def select_random_albums(conn):
+    cur = conn.cursor()
+    res = cur.execute('SELECT * FROM albums ORDER BY RANDOM()')
+    albums = res.fetchall()
+    return albums
 
+def select_album_tracks(conn, album_id):
+    sql = ''' SELECT * FROM tracks WHERE album_id = ? 
+              ORDER BY track ASC'''
+    cur = conn.cursor()
+    res = cur.execute(sql, (album_id,))
+    albums = res.fetchall()
+    return albums
+
+def scan_library(conn):
+    count = 0
+    for track_path in glob.glob('/nfs/m600/music/**/*.*', recursive = True):
+        if TinyTag.is_supported(track_path):
+            tag = TinyTag.get(track_path)
             album = (tag.albumartist, tag.album, tag.year)
             album_id = select_album(conn, album)
             if not album_id:
@@ -84,12 +96,13 @@ def scan_library(dir_path, counter, conn):
 
             track = (album_id, tag.track, track_path)
             track_id = select_track(conn, track_path)
+            if not track_id:
+                track_id = create_track(conn, track)
             
-            counter.inc()
-            if counter.getCount() > 100:
+            count += 1
+            if count > 200:
                 return
-            print(f'Scanned {counter.getCount()} tracks', end="\r", flush=True)
-            
+            print(f'Scanned {count} tracks', end="\r", flush=True)
 
 def main():
     parser = argparse.ArgumentParser(
@@ -97,9 +110,8 @@ def main():
                         description=f'{APP_NAME}: an opinionated, read-only music library utility',
                         epilog='Created by Micah Cowell')
     parser.add_argument('-s', '--scan', action='store_true')
+    parser.add_argument('-r', '--random', action='store_true')
     args = parser.parse_args()
-
-    dir_path = '/nfs/m600/music/'
 
     sql_albums_table = ''' CREATE TABLE IF NOT EXISTS albums(
                             id integer PRIMARY KEY,
@@ -118,13 +130,20 @@ def main():
     conn = create_connection(f'{APP_NAME}.db')
 
     if conn is not None:
-
         create_table(conn, sql_albums_table)
         create_table(conn, sql_tracks_table)
 
         if args.scan:
-            scan_library(dir_path, Counter(), conn)
+            print('Scanning library')
+            scan_library(conn)
             print('\nScan complete')
+        if args.random:
+            albums = select_random_albums(conn)
+            if albums:
+                print(albums[0][1] + ' - ' + albums[0][2])
+                tracks = select_album_tracks(conn, albums[0][0])
+                for track in tracks:
+                    print(track[3])
         
         conn.close()
 
