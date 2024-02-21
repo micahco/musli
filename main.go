@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"database/sql"
 	"flag"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/dhowden/tag"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/schollz/progressbar/v3"
 )
 
 type Album struct {
@@ -43,6 +45,12 @@ func main() {
 		log.Fatal(err)
 	}
 
+	executeQuery(db, `PRAGMA journal_mode = OFF;
+					PRAGMA synchronous = 0;
+					PRAGMA cache_size = 1000000;
+					PRAGMA locking_mode = EXCLUSIVE;
+					PRAGMA temp_store = MEMORY;`)
+
 	executeQuery(db, `CREATE TABLE IF NOT EXISTS albums(
 					id integer PRIMARY KEY,
 					album_artist TEXT,
@@ -60,24 +68,47 @@ func main() {
 				);`)
 
 	if *scanMode {
-		fmt.Println("Scanning library")
+		clear()
+		fmt.Println("Scanning library\n")
 		scanLibrary(db)
-		fmt.Println("Scan complete")
+		fmt.Println("\nScan complete")
 	}
 
 	if *randMode {
 		albums := randomAlbums(db)
-		for count, album := range albums {
-			if count > 10 {
+		start := 0
+		size := 9
+		scanner := bufio.NewScanner(os.Stdin)
+		for {
+			clear()
+			var m = make([]Album, size)
+			for i := 0; i < size; i++ {
+				pos := start + i
+				a := albums[pos]
+				m[i] = a
+				fmt.Println("[" + strconv.Itoa(i+1) + "] " + a.albumArtist + " - " + a.name)
+			}
+			fmt.Print("Choose album: ")
+			scanner.Scan()
+			text := scanner.Text()
+			i, err := strconv.Atoi(text)
+			if len(text) != 0 && err == nil && i >= 0 && len(m) > i-1 {
+				clear()
+				t := albumTracks(db, m[i-1])
+				playTracks(t)
 				break
 			}
-			fmt.Println(album.albumArtist + " - " + album.name)
+			start += size
 		}
-		tracks := albumTracks(db, albums[0])
-		playTracks(tracks)
 	}
 
 	db.Close()
+}
+
+func clear() {
+	cmd := exec.Command("clear")
+	cmd.Stdout = os.Stdout
+	cmd.Run()
 }
 
 func scanLibrary(db *sql.DB) {
@@ -95,7 +126,10 @@ func scanLibrary(db *sql.DB) {
 		return nil
 	})
 
-	for count, filename := range filenames {
+	bar := progressbar.Default(int64(len(filenames)))
+	for _, filename := range filenames {
+		bar.Add(1)
+
 		f, err := os.OpenFile(filename, os.O_RDONLY, 0444)
 		if err != nil {
 			log.Fatal(err)
@@ -154,13 +188,11 @@ func scanLibrary(db *sql.DB) {
 		}
 
 		if trackID == -1 {
-			trackID, err = insertTrack(db, t)
+			_, err = insertTrack(db, t)
 			if err != nil {
 				log.Fatal(err)
 			}
 		}
-
-		fmt.Println(count)
 	}
 	if err != nil {
 		log.Fatal(err)
@@ -283,10 +315,10 @@ func playTracks(tracks []Track) {
 		paths += t.path + "\n"
 	}
 
-	cmd := exec.Command("mpv", "--playlist=-")
+	cmd := exec.Command("mpv", "--playlist=-", "&")
 	cmd.Stdin = strings.NewReader(paths)
 
-	err := cmd.Run()
+	err := cmd.Start()
 	if err != nil {
 		log.Fatal(err)
 	}
