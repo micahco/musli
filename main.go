@@ -25,12 +25,20 @@ func main() {
 		log.Fatal(err)
 	}
 
-	sqlite(db, `CREATE TABLE IF NOT EXISTS albums(
+	executeQuery(db, `CREATE TABLE IF NOT EXISTS albums(
 					id integer PRIMARY KEY,
-					album_artist TEXT NOT NULL,
-					name TEXT NOT NULL,
-					path TEXT NOT NULL,
+					album_artist TEXT,
+					discs INTEGER,
+					name TEXT,
 					year INTEGER
+				);`)
+
+	executeQuery(db, `CREATE TABLE IF NOT EXISTS tracks(
+					id integer PRIMARY KEY,
+					album_id INTEGER,
+					disc INTEGER,
+					path TEXT,
+					track INTEGER
 				);`)
 
 	if *scanMode {
@@ -40,27 +48,26 @@ func main() {
 	}
 
 	if *randMode {
-
+		rows := selectRandomAlbums(db)
+		var albums []Album
+		for rows.Next() {
+			var i int
+			var r Album
+			err := rows.Scan(&i, &r.albumArtist, &r.discs, &r.name, &r.year)
+			if err != nil {
+				log.Fatal(err)
+			}
+			albums = append(albums, r)
+		}
+		for count, album := range albums {
+			if count > 10 {
+				return
+			}
+			fmt.Println(album.name)
+		}
 	}
 
 	db.Close()
-}
-
-func hasValidExt(path string) bool {
-	ext := filepath.Ext(path)
-	switch strings.ToUpper(ext) {
-	case
-		".MP3",
-		".M4A",
-		".M4B",
-		".M4P",
-		".ALAC",
-		".FLAC",
-		".OGG",
-		".DSF":
-		return true
-	}
-	return false
 }
 
 func scanLibrary(db *sql.DB) {
@@ -77,17 +84,22 @@ func scanLibrary(db *sql.DB) {
 
 		return nil
 	})
-	for _, filename := range filenames {
+	for count, filename := range filenames {
 		f, err := os.OpenFile(filename, os.O_RDONLY, 0444)
 		if err != nil {
 			log.Fatal(err)
 		}
+
 		m, err := tag.ReadFrom(f)
 		if err != nil {
 			log.Fatal(err)
 		}
+
+		disc, totalDiscs := m.Disc()
+
 		a := Album{
 			albumArtist: m.AlbumArtist(),
+			discs:       totalDiscs,
 			name:        m.Album(),
 			year:        m.Year(),
 		}
@@ -116,23 +128,68 @@ func scanLibrary(db *sql.DB) {
 			}
 		}
 
-		fmt.Println(albumId)
+		trackNumber, _ := m.Track()
+
+		t := Track{
+			albumId: int(albumId),
+			disc:    disc,
+			path:    filename,
+			track:   trackNumber,
+		}
+
+		trackId, err := selectTrack(db, filename)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		if trackId == -1 {
+			trackId, err = insertTrack(db, t)
+			if err != nil {
+				log.Fatal(err)
+			}
+		}
+
+		fmt.Println(count)
 	}
 	if err != nil {
 		log.Fatal(err)
 	}
 }
 
+func hasValidExt(path string) bool {
+	ext := filepath.Ext(path)
+	switch strings.ToUpper(ext) {
+	case
+		".MP3",
+		".M4A",
+		".M4B",
+		".M4P",
+		".ALAC",
+		".FLAC",
+		".OGG",
+		".DSF":
+		return true
+	}
+	return false
+}
+
 type Album struct {
 	albumArtist string
+	discs       int
 	name        string
-	path        string
 	year        int
 }
 
+type Track struct {
+	albumId int
+	disc    int
+	path    string
+	track   int
+}
+
 func insertAlbum(db *sql.DB, a Album) (int64, error) {
-	res, err := db.Exec(`INSERT INTO albums(album_artist,name,path,year)
-						VALUES(?,?,?);`, a.albumArtist, a.name, a.path, a.year)
+	res, err := db.Exec(`INSERT INTO albums(album_artist,discs,name,year)
+						VALUES(?,?,?,?);`, a.albumArtist, a.discs, a.name, a.year)
 	if err != nil {
 		return -1, err
 	}
@@ -145,7 +202,7 @@ func insertAlbum(db *sql.DB, a Album) (int64, error) {
 
 func selectAlbum(db *sql.DB, a Album) (int64, error) {
 	query := `SELECT id FROM albums
-			WHERE album_artist = ? AND name = ? p AND year = ?`
+			WHERE album_artist = ? AND name = ? AND year = ?`
 	row := db.QueryRow(query, a.albumArtist, a.name, a.year)
 	var albumId int64
 	err := row.Scan(&albumId)
@@ -155,7 +212,40 @@ func selectAlbum(db *sql.DB, a Album) (int64, error) {
 	return albumId, err
 }
 
-func sqlite(db *sql.DB, query string) {
+func insertTrack(db *sql.DB, t Track) (int64, error) {
+	res, err := db.Exec(`INSERT INTO tracks(album_id,disc,path,track)
+						VALUES(?,?,?,?);`, t.albumId, t.disc, t.path, t.track)
+	if err != nil {
+		return -1, err
+	}
+	trackId, err := res.LastInsertId()
+	if err != nil {
+		return -1, err
+	}
+	return trackId, nil
+}
+
+func selectTrack(db *sql.DB, path string) (int64, error) {
+	query := `SELECT id FROM tracks
+			WHERE path = ?`
+	row := db.QueryRow(query, path)
+	var trackId int64
+	err := row.Scan(&trackId)
+	if err == sql.ErrNoRows {
+		return -1, nil
+	}
+	return trackId, err
+}
+
+func selectRandomAlbums(db *sql.DB) *sql.Rows {
+	rows, err := db.Query("SELECT * FROM albums ORDER BY RANDOM()")
+	if err != nil {
+		log.Fatal(err)
+	}
+	return rows
+}
+
+func executeQuery(db *sql.DB, query string) {
 	_, err := db.Exec(query)
 	if err != nil {
 		log.Fatal(err)
