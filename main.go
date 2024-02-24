@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -39,9 +38,7 @@ func main() {
 	}
 
 	if *sFlag {
-		fmt.Println("SCAN BEGIN")
 		musli.ScanLibrary()
-		fmt.Println("SCAN END")
 		return
 	}
 }

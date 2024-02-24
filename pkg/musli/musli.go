@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"database/sql"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"os"
@@ -38,7 +39,8 @@ type Config struct {
 	DbFile     string
 	MusicDir   string
 	ExecCmd    string
-	ShowOutput bool
+	ShowStdout bool
+	ShowStderr bool
 }
 
 var db *sql.DB
@@ -54,7 +56,8 @@ func Init(configFile string) {
 		DbFile:     filepath.Join(homeDir, ".musli/library.db"),
 		MusicDir:   filepath.Join(homeDir, "Music"),
 		ExecCmd:    "mpv",
-		ShowOutput: false,
+		ShowStdout: false,
+		ShowStderr: false,
 	}
 
 	_, err = toml.DecodeFile(configFile, &conf)
@@ -120,8 +123,8 @@ func ScanLibrary() {
 	if total == 0 {
 		log.Fatal("No readable files in directory")
 	}
-	for _, filename := range filenames {
-
+	for i, filename := range filenames {
+		fmt.Print(i, "/", total)
 		f, err := os.OpenFile(filename, os.O_RDONLY, 0444)
 		if err != nil {
 			log.Fatal(err)
@@ -185,6 +188,7 @@ func ScanLibrary() {
 				log.Fatal(err)
 			}
 		}
+		fmt.Print("\033[2K\r") // clear line
 	}
 	if err != nil {
 		log.Fatal(err)
@@ -235,7 +239,7 @@ func ShowAlbums(albums []Album, pageLength int) {
 			albumIDs[i] = a
 			fmt.Println("[" + strconv.Itoa(i+1) + "] " + a.albumArtist + " - " + a.name)
 		}
-		fmt.Print("sel: ")
+		fmt.Print(">>> ")
 		scanner.Scan()
 		in := scanner.Text()
 		i, err := strconv.Atoi(in)
@@ -243,21 +247,40 @@ func ShowAlbums(albums []Album, pageLength int) {
 		if len(in) != 0 && err == nil && i >= 0 && len(albumIDs) > i {
 			paths := selectPathsFromTracks(albumIDs[i])
 			cmd := exec.Command(conf.ExecCmd, paths...)
-			if conf.ShowOutput {
-				out, err := cmd.Output()
+			if conf.ShowStdout {
+				stdout, err := cmd.StdoutPipe()
 				if err != nil {
 					log.Fatal(err)
 				}
-				fmt.Printf("%s", out)
-			} else {
-				err := cmd.Start()
+				startCmdWithOutput(cmd, stdout)
+			} else if conf.ShowStderr {
+				stderr, err := cmd.StderrPipe()
 				if err != nil {
+					log.Fatal(err)
+				}
+				startCmdWithOutput(cmd, stderr)
+			} else {
+				if err := cmd.Start(); err != nil {
 					log.Fatal(err)
 				}
 			}
 			break
 		}
 		start += max
+	}
+}
+
+func startCmdWithOutput(cmd *exec.Cmd, r io.ReadCloser) {
+	if err := cmd.Start(); err != nil {
+		log.Fatal(err)
+	}
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		m := scanner.Text()
+		fmt.Println(m)
+	}
+	if err := cmd.Wait(); err != nil {
+		log.Fatal(err)
 	}
 }
 
