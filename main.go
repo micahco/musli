@@ -15,8 +15,10 @@ import (
 
 	"github.com/dhowden/tag"
 	_ "github.com/mattn/go-sqlite3"
-	"github.com/schollz/progressbar/v3"
 )
+
+const LIBRARY_DIR = "/home/micah/Music"
+const LIBRARY_DB = "musli.db"
 
 type Album struct {
 	id          int64
@@ -28,28 +30,32 @@ type Album struct {
 
 type Track struct {
 	id      int64
-	albumID int
+	albumID int64
 	disc    int
 	path    string
 	track   int
 }
 
 func main() {
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
-	scanMode := flag.Bool("s", false, "Scan library")
-	randMode := flag.Bool("r", false, "Query random")
+	log.SetFlags(log.LstdFlags | log.Lshortfile) // debugging
+
+	qFlag := flag.String("q", "", "Search")
+	rFlag := flag.Bool("r", false, "Query random")
+	sFlag := flag.Bool("s", false, "Scan library")
 	flag.Parse()
 
-	db, err := sql.Open("sqlite3", "musli.db")
+	db, err := sql.Open("sqlite3", LIBRARY_DB)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	executeQuery(db, `PRAGMA journal_mode = OFF;
-					PRAGMA synchronous = 0;
-					PRAGMA cache_size = 1000000;
-					PRAGMA locking_mode = EXCLUSIVE;
-					PRAGMA temp_store = MEMORY;`)
+	/*	OPTIMIZATIONS
+		executeQuery(db, `PRAGMA journal_mode = OFF;
+						PRAGMA synchronous = 0;
+						PRAGMA cache_size = 1000000;
+						PRAGMA locking_mode = EXCLUSIVE;
+						PRAGMA temp_store = MEMORY;`)
+	*/
 
 	executeQuery(db, `CREATE TABLE IF NOT EXISTS albums(
 					id integer PRIMARY KEY,
@@ -67,56 +73,30 @@ func main() {
 					track INTEGER
 				);`)
 
-	if *scanMode {
-		clear()
-		fmt.Println("Scanning library\n")
-		scanLibrary(db)
-		fmt.Println("\nScan complete")
+	if len(*qFlag) > 0 {
+		searchForAlbums(db, *qFlag)
+		return
 	}
 
-	if *randMode {
-		albums := randomAlbums(db)
-		start := 0
-		size := 9
-		scanner := bufio.NewScanner(os.Stdin)
-		for {
-			clear()
-			var m = make([]Album, size)
-			for i := 0; i < size; i++ {
-				pos := start + i
-				a := albums[pos]
-				m[i] = a
-				fmt.Println("[" + strconv.Itoa(i+1) + "] " + a.albumArtist + " - " + a.name)
-			}
-			fmt.Print("Choose album: ")
-			scanner.Scan()
-			text := scanner.Text()
-			i, err := strconv.Atoi(text)
-			if len(text) != 0 && err == nil && i >= 0 && len(m) > i-1 {
-				clear()
-				t := albumTracks(db, m[i-1])
-				playTracks(t)
-				break
-			}
-			start += size
-		}
+	if *rFlag {
+		showRandomAlbums(db)
+		return
+	}
+
+	if *sFlag {
+		scanLibraryToDatabase(db)
+		return
 	}
 
 	db.Close()
 }
 
-func clear() {
-	cmd := exec.Command("clear")
-	cmd.Stdout = os.Stdout
-	cmd.Run()
-}
-
-func scanLibrary(db *sql.DB) {
+func scanLibraryToDatabase(db *sql.DB) {
+	fmt.Println("Scanning library")
 	var filenames []string
-	err := filepath.Walk("/nfs/m600/music", func(path string, info fs.FileInfo, err error) error {
+	err := filepath.Walk(LIBRARY_DIR, func(path string, info fs.FileInfo, err error) error {
 		if err != nil {
-			fmt.Println(err)
-			return nil
+			log.Fatal(err)
 		}
 
 		if !info.IsDir() && hasValidExt(path) {
@@ -126,9 +106,11 @@ func scanLibrary(db *sql.DB) {
 		return nil
 	})
 
-	bar := progressbar.Default(int64(len(filenames)))
+	total := len(filenames)
+	if total == 0 {
+		log.Fatal("No readable files in directory")
+	}
 	for _, filename := range filenames {
-		bar.Add(1)
 
 		f, err := os.OpenFile(filename, os.O_RDONLY, 0444)
 		if err != nil {
@@ -161,7 +143,7 @@ func scanLibrary(db *sql.DB) {
 			}
 		}
 
-		albumID, err := findalbumID(db, a)
+		albumID, err := findAlbumID(db, a)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -176,7 +158,7 @@ func scanLibrary(db *sql.DB) {
 		trackNumber, _ := m.Track()
 
 		t := Track{
-			albumID: int(albumID),
+			albumID: int64(albumID),
 			disc:    disc,
 			path:    filename,
 			track:   trackNumber,
@@ -196,6 +178,47 @@ func scanLibrary(db *sql.DB) {
 	}
 	if err != nil {
 		log.Fatal(err)
+	}
+	fmt.Println("Scan complete")
+}
+
+func searchForAlbums(db *sql.DB, query string) {
+	albums := selectAlbumsSearch(db, query, -1, -1)
+	showAlbums(db, albums, 10)
+}
+
+func showRandomAlbums(db *sql.DB) {
+	albums := selectRandomAlbums(db)
+	showAlbums(db, albums, 10)
+}
+
+func showAlbums(db *sql.DB, albums []Album, pageLength int) {
+	start := 0
+	max := len(albums)
+	scanner := bufio.NewScanner(os.Stdin)
+	for start < max {
+		var albumIDs = make([]Album, pageLength)
+		for i := 0; i < pageLength && i < max; i++ {
+			pos := start + i
+			a := albums[pos]
+			albumIDs[i] = a
+			fmt.Println("[" + strconv.Itoa(i+1) + "] " + a.albumArtist + " - " + a.name)
+		}
+		fmt.Print("sel: ")
+		scanner.Scan()
+		in := scanner.Text()
+		i, err := strconv.Atoi(in)
+		i -= 1
+		if len(in) != 0 && err == nil && i >= 0 && len(albumIDs) > i {
+			paths := selectPathsFromTracks(db, albumIDs[i])
+			cmd := exec.Command("mpv", paths...)
+			err := cmd.Start()
+			if err != nil {
+				log.Fatal(err)
+			}
+			break
+		}
+		start += max
 	}
 }
 
@@ -236,7 +259,7 @@ func insertAlbum(db *sql.DB, a Album) (int64, error) {
 	return albumID, nil
 }
 
-func findalbumID(db *sql.DB, a Album) (int64, error) {
+func findAlbumID(db *sql.DB, a Album) (int64, error) {
 	query := `SELECT id FROM albums
 			WHERE album_artist = ? AND name = ? AND year = ?;`
 	row := db.QueryRow(query, a.albumArtist, a.name, a.year)
@@ -273,53 +296,66 @@ func findTrackID(db *sql.DB, path string) (int64, error) {
 	return trackID, err
 }
 
-func randomAlbums(db *sql.DB) []Album {
+func selectAlbumsSearch(db *sql.DB, query string, year1 int, year2 int) []Album {
+	query = "%" + query + "%"
+	var rows *sql.Rows
+	var err error
+	if year1 > 0 && year2 > 0 {
+		rows, err = db.Query(`SELECT * FROM albums WHERE 
+						(year BETWEEN ? AND ?) AND
+						(name LIKE ? OR album_artist LIKE ?);`, year1, year2, query, query)
+	} else if year1 > 0 {
+		rows, err = db.Query(`SELECT * FROM albums WHERE 
+						(year = ?) AND
+						(name LIKE ? OR album_artist LIKE ?);`, year1, query, query)
+	} else {
+		rows, err = db.Query(`SELECT * FROM albums WHERE 
+						name LIKE ? OR album_artist LIKE ?;`, query, query)
+	}
+	if err != nil {
+		log.Fatal(err)
+	}
+	albums := parseAlbumsResults(rows)
+	return albums
+}
+
+func selectRandomAlbums(db *sql.DB) []Album {
 	rows, err := db.Query("SELECT * FROM albums ORDER BY RANDOM();")
 	if err != nil {
 		log.Fatal(err)
 	}
+	albums := parseAlbumsResults(rows)
+	return albums
+}
+
+func parseAlbumsResults(rows *sql.Rows) []Album {
 	var albums []Album
 	for rows.Next() {
-		var r Album
-		err := rows.Scan(&r.id, &r.albumArtist, &r.discs, &r.name, &r.year)
+		var a Album
+		err := rows.Scan(&a.id, &a.albumArtist, &a.discs, &a.name, &a.year)
 		if err != nil {
 			log.Fatal(err)
 		}
-		albums = append(albums, r)
+		albums = append(albums, a)
 	}
 	return albums
 }
 
-func albumTracks(db *sql.DB, a Album) []Track {
-	query := `SELECT * FROM tracks
-			WHERE album_id = ? ORDER BY track ASC, disc ASC;`
+func selectPathsFromTracks(db *sql.DB, a Album) []string {
+	query := `SELECT path FROM tracks
+				WHERE album_id = ? ORDER BY track ASC, disc ASC;`
 	rows, err := db.Query(query, a.id)
 	if err != nil {
 		log.Fatal(err)
 	}
-	var tracks []Track
+	var paths []string
 	for rows.Next() {
-		var t Track
-		err := rows.Scan(&t.id, &t.albumID, &t.disc, &t.path, &t.track)
+		var p string
+		err := rows.Scan(&p)
 		if err != nil {
 			log.Fatal(err)
 		}
-		tracks = append(tracks, t)
+		paths = append(paths, p)
 	}
-	return tracks
-}
-
-func playTracks(tracks []Track) {
-	var paths string
-	for _, t := range tracks {
-		paths += t.path + "\n"
-	}
-
-	cmd := exec.Command("mpv", "--playlist=-", "&")
-	cmd.Stdin = strings.NewReader(paths)
-
-	err := cmd.Start()
-	if err != nil {
-		log.Fatal(err)
-	}
+	return paths
 }
