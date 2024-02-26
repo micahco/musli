@@ -302,7 +302,7 @@ func ShowAlbums(albums []Album) error {
 		scanner.Scan()
 		in := scanner.Text()
 		if in == "0" {
-			fmt.Println("PREV")
+			clearScreen()
 			start -= pageLength
 			continue
 		}
@@ -339,10 +339,14 @@ func ShowAlbums(albums []Album) error {
 			}
 			return nil
 		}
-		fmt.Println("NEXT")
 		start += pageLength
+		clearScreen()
 	}
 	return nil
+}
+
+func clearScreen() {
+	fmt.Print("\033[H\033[2J")
 }
 
 func startCmdWithOutput(cmd *exec.Cmd, r io.ReadCloser) error {

@@ -1,18 +1,22 @@
 # musli
 
-CLI **mus**ic **li**brary - and an excellent breakfast.
+`musli` is a CLI music library. 
 
-## Features
+`musli` is **not**:
 
-* Focuses on albums, not songs.
-* Super fast library search.
-* *Read-only*. Does not mess with your files or metadata.
-* Uses the media player you already have to play music.
-* Built with Go and SQLite with only a few external dependencies.
+* A music player. Instead, `musli` uses the the media player you already have to handle playback. See [Compatible media players](#compatible-media-players).
 
-## Config
+* A metadata editor. `musli` requires that your music file be properly tagged.
 
-Configuration file: `/home/micah/.config/musli/config.toml`
+* Built for songs or playlist. `musli` is exclusively made for album playback. This allows it to be very fast and simple.
+
+## Install  
+
+Refer to the Go programming language documentation: [Compile and install the application](https://go.dev/doc/tutorial/compile-install).
+
+## Configuration file
+
+Location: `/home/micah/.config/musli/config.toml`
 
 Default values:
 
@@ -24,7 +28,7 @@ ShowStdout = false
 ShowStderr = false
 ```
 
-**Note**: use  directory paths `/home/micah/Music`, not: `$HOME/Music` or `~/Music`
+**Note**: use full directory paths `/home/micah/Music`, not: `$HOME/Music` or `~/Music`
 
 ### Options
 
@@ -48,7 +52,7 @@ For example, if `ExecCmd` was set to `mpv`, a command such as the following woul
 
 Prints the command's stdout/stderr while the media player is running. Useful for debugging. Should only enable one at a time. If both are set to `true`, stdout takes precedence and stderr will not be printed.
 
-### Compatible Media Players
+## Compatible media players
 
 The basic premise is that musli simply launches the medea player with a list of filepaths as arguments. Theoretically, any media player that has a CLI with the pattern should work.
 
