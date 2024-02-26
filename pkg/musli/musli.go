@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -22,17 +22,16 @@ import (
 type Album struct {
 	id          int64
 	albumArtist string
-	discs       int
 	name        string
 	year        int
 }
 
 type Track struct {
-	id      int64
-	albumID int64
-	disc    int
-	path    string
-	track   int
+	id          int64
+	albumID     int64
+	disc        int
+	path        string
+	trackNumber int
 }
 
 type Config struct {
@@ -46,14 +45,20 @@ type Config struct {
 var db *sql.DB
 var conf Config
 
-func Init(configFile string) {
+func Init(configFile string) error {
+
 	homeDir, err := homedir.Dir()
 	if err != nil {
-		log.Fatal(err)
+		return err
+	}
+
+	appStateDir, err := AppStateDir()
+	if err != nil {
+		return err
 	}
 
 	conf = Config{ // Default values
-		DbFile:     filepath.Join(homeDir, ".musli/library.db"),
+		DbFile:     filepath.Join(appStateDir, "library.db"),
 		MusicDir:   filepath.Join(homeDir, "Music"),
 		ExecCmd:    "mpv",
 		ShowStdout: false,
@@ -62,12 +67,12 @@ func Init(configFile string) {
 
 	_, err = toml.DecodeFile(configFile, &conf)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	db, err = sql.Open("sqlite3", conf.DbFile)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	/*	OPTIMIZATIONS
@@ -81,12 +86,11 @@ func Init(configFile string) {
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS albums(
 		id integer PRIMARY KEY,
 		album_artist TEXT,
-		discs INTEGER,
 		name TEXT,
 		year INTEGER
 	);`)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS tracks(
@@ -94,25 +98,78 @@ func Init(configFile string) {
 		album_id INTEGER,
 		disc INTEGER,
 		path TEXT,
-		track INTEGER
+		track_number INTEGER
 	);`)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
+
+	return nil
 }
 
-func Exit() {
-	db.Close()
+// dirType: XDG user directory (i.e. CONFIG, STATE)
+func getUserDir(dirType string) (string, error) {
+	var userDirPath string
+	appName := "musli"
+
+	homeDir, err := homedir.Dir()
+	if err != nil {
+		return "", err
+	}
+
+	switch runtime.GOOS {
+	case "linux":
+		xdgConfigHome := os.Getenv("XDG_" + strings.ToUpper(dirType) + "_HOME")
+		if xdgConfigHome != "" {
+			userDirPath = xdgConfigHome
+		} else {
+			userDirPath = filepath.Join(homeDir, "."+strings.ToLower(dirType), appName)
+		}
+
+	default:
+		userDirPath = filepath.Join(homeDir, "."+appName)
+	}
+
+	return userDirPath, nil
 }
 
-func ScanLibrary() {
+func AppConfigDir() (string, error) {
+	dir, err := getUserDir("CONFIG")
+	if err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+func AppStateDir() (string, error) {
+	dir, err := getUserDir("STATE")
+	if err != nil {
+		return "", err
+	}
+	err = os.MkdirAll(dir, os.ModePerm)
+	if err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+func ConfigFile() (string, error) {
+	configDir, err := AppConfigDir()
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(configDir, "config.toml")
+	return path, nil
+}
+
+func ScanLibrary() error {
 	var filenames []string
 	err := filepath.Walk(conf.MusicDir, func(path string, info fs.FileInfo, err error) error {
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
 
-		if !info.IsDir() && hasValidExt(path) {
+		if !info.IsDir() && isValidFileType(path) {
 			filenames = append(filenames, path)
 		}
 
@@ -121,170 +178,217 @@ func ScanLibrary() {
 
 	total := len(filenames)
 	if total == 0 {
-		log.Fatal("No readable files in directory")
+		return nil
 	}
 	for i, filename := range filenames {
 		fmt.Print(i, "/", total)
+		fmt.Print("\033[2K\r") // clear line
+
+		// check if filepath is already in database
+		trackID, err := findTrackID(filename)
+		if err != nil {
+			return err
+		}
+		if trackID != -1 {
+			continue
+		}
+
 		f, err := os.OpenFile(filename, os.O_RDONLY, 0444)
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
 
 		m, err := tag.ReadFrom(f)
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
-
-		disc, totalDiscs := m.Disc()
 
 		a := Album{
 			albumArtist: m.AlbumArtist(),
-			discs:       totalDiscs,
 			name:        m.Album(),
 			year:        m.Year(),
 		}
-
 		if m.Year() == 0 {
-			r := m.Raw()
-			tdor := (r["TDOR"])
-			if tdorStr, ok := tdor.(string); ok {
-				yearStr := strings.Split(tdorStr, "-")[0]
-				year, err := strconv.Atoi(yearStr)
-				if err == nil {
-					a.year = year
-				}
-			}
+			a.year = readAltYearMetadata(m)
 		}
 
 		albumID, err := findAlbumID(a)
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
-
 		if albumID == -1 {
 			albumID, err = insertAlbum(a)
 			if err != nil {
-				log.Fatal(err)
+				return err
 			}
 		}
 
+		disc, _ := m.Disc()
 		trackNumber, _ := m.Track()
-
 		t := Track{
-			albumID: int64(albumID),
-			disc:    disc,
-			path:    filename,
-			track:   trackNumber,
+			albumID:     int64(albumID),
+			disc:        disc,
+			path:        filename,
+			trackNumber: trackNumber,
 		}
 
-		trackID, err := findTrackID(filename)
+		_, err = insertTrack(t)
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
-
-		if trackID == -1 {
-			_, err = insertTrack(t)
-			if err != nil {
-				log.Fatal(err)
-			}
-		}
-		fmt.Print("\033[2K\r") // clear line
 	}
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
+	return nil
 }
 
-func RandomAlbums() []Album {
+func RandomAlbums() ([]Album, error) {
 	rows, err := db.Query("SELECT * FROM albums ORDER BY RANDOM();")
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
-	albums := parseAlbumsResults(rows)
-	return albums
-}
 
-func SearchAlbums(query string, year1 int, year2 int) []Album {
-	query = "%" + query + "%"
-	var rows *sql.Rows
-	var err error
-	if year1 > 0 && year2 > 0 {
-		rows, err = db.Query(`SELECT * FROM albums WHERE 
-						(year BETWEEN ? AND ?) AND
-						(name LIKE ? OR album_artist LIKE ?);`, year1, year2, query, query)
-	} else if year1 > 0 {
-		rows, err = db.Query(`SELECT * FROM albums WHERE 
-						(year = ?) AND
-						(name LIKE ? OR album_artist LIKE ?);`, year1, query, query)
-	} else {
-		rows, err = db.Query(`SELECT * FROM albums WHERE 
-						name LIKE ? OR album_artist LIKE ?;`, query, query)
-	}
+	albums, err := parseAlbumsResults(rows)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
-	albums := parseAlbumsResults(rows)
-	return albums
+
+	return albums, nil
 }
 
-func ShowAlbums(albums []Album, pageLength int) {
+func SearchAlbums(query string) ([]Album, error) {
+	var args []any
+	for _, s := range strings.Split(query, ",") {
+		s = "%" + s + "%"
+		args = append(args, s, s)
+	}
+
+	q := "SELECT * FROM albums WHERE (name LIKE ? OR album_artist LIKE ?)"
+	for i := 2; i < len(args); i += 2 {
+		q += "\nAND (name LIKE ? OR album_artist LIKE ?)"
+	}
+
+	rows, err := db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+
+	albums, err := parseAlbumsResults(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	return albums, nil
+}
+
+func ShowAlbums(albums []Album) error {
+	pageLength := 9
 	start := 0
 	max := len(albums)
 	scanner := bufio.NewScanner(os.Stdin)
 	for start < max {
-		var albumIDs = make([]Album, pageLength)
+		if start < 0 {
+			start = 0
+		}
+		var pageAlbums = make([]Album, pageLength)
 		for i := 0; i < pageLength && i < max; i++ {
 			pos := start + i
 			a := albums[pos]
-			albumIDs[i] = a
+			pageAlbums[i] = a
 			fmt.Println("[" + strconv.Itoa(i+1) + "] " + a.albumArtist + " - " + a.name)
 		}
-		fmt.Print(">>> ")
+		fmt.Print("Select (empty = next, 0 = prev): ")
 		scanner.Scan()
 		in := scanner.Text()
-		i, err := strconv.Atoi(in)
-		i -= 1
-		if len(in) != 0 && err == nil && i >= 0 && len(albumIDs) > i {
-			paths := selectPathsFromTracks(albumIDs[i])
+		if in == "0" {
+			fmt.Println("PREV")
+			start -= pageLength
+			continue
+		}
+		i, _ := strconv.Atoi(in)
+		if i > 0 && i < len(pageAlbums) {
+			paths, err := selectPathsFromTracks(pageAlbums[i-1])
+			if err != nil {
+				return err
+			}
 			cmd := exec.Command(conf.ExecCmd, paths...)
 			if conf.ShowStdout {
 				stdout, err := cmd.StdoutPipe()
 				if err != nil {
-					log.Fatal(err)
+					return err
 				}
-				startCmdWithOutput(cmd, stdout)
+				err = startCmdWithOutput(cmd, stdout)
+				if err != nil {
+					return err
+				}
 			} else if conf.ShowStderr {
 				stderr, err := cmd.StderrPipe()
 				if err != nil {
-					log.Fatal(err)
+					return err
 				}
-				startCmdWithOutput(cmd, stderr)
+				err = startCmdWithOutput(cmd, stderr)
+				if err != nil {
+					return err
+				}
 			} else {
-				if err := cmd.Start(); err != nil {
-					log.Fatal(err)
+				err := cmd.Start()
+				if err != nil {
+					return err
 				}
 			}
-			break
+			return nil
 		}
-		start += max
+		fmt.Println("NEXT")
+		start += pageLength
 	}
+	return nil
 }
 
-func startCmdWithOutput(cmd *exec.Cmd, r io.ReadCloser) {
-	if err := cmd.Start(); err != nil {
-		log.Fatal(err)
+func startCmdWithOutput(cmd *exec.Cmd, r io.ReadCloser) error {
+	err := cmd.Start()
+	if err != nil {
+		return err
 	}
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		m := scanner.Text()
 		fmt.Println(m)
 	}
-	if err := cmd.Wait(); err != nil {
-		log.Fatal(err)
+	err = cmd.Wait()
+	if err != nil {
+		return err
 	}
+	return nil
 }
 
-func hasValidExt(path string) bool {
+func readAltYearMetadata(m tag.Metadata) int {
+	// https://eyed3.readthedocs.io/en/latest/compliance.html
+	r := m.Raw()
+	tdor := (r["TDOR"]) // ID3 v2.4 orig release date
+	if tdorStr, ok := tdor.(string); ok {
+		yearStr := strings.Split(tdorStr, "-")[0]
+		year, err := strconv.Atoi(yearStr)
+		if err == nil {
+			return year
+		}
+	}
+	tdrl := (r["TDRL"]) // ID3 v2.4 release date
+	if tdrlStr, ok := tdrl.(string); ok {
+		fmt.Println("TDRL", tdrlStr)
+	}
+	xdor := (r["XDOR"]) // ID3 v2.3 orig release year
+	if xdorStr, ok := xdor.(string); ok {
+		fmt.Println("XDOR", xdorStr)
+	}
+	tory := (r["TORY"]) // ID3 v2.3 orig release year
+	if toryStr, ok := tory.(string); ok {
+		fmt.Println("TORY", toryStr)
+	}
+	return 0
+}
+
+func isValidFileType(path string) bool {
 	ext := filepath.Ext(path)
 	switch strings.ToUpper(ext) {
 	case
@@ -302,8 +406,8 @@ func hasValidExt(path string) bool {
 }
 
 func insertAlbum(a Album) (int64, error) {
-	res, err := db.Exec(`INSERT INTO albums(album_artist,discs,name,year)
-						VALUES(?,?,?,?);`, a.albumArtist, a.discs, a.name, a.year)
+	res, err := db.Exec(`INSERT INTO albums(album_artist,name,year)
+						VALUES(?,?,?);`, a.albumArtist, a.name, a.year)
 	if err != nil {
 		return -1, err
 	}
@@ -327,8 +431,8 @@ func findAlbumID(a Album) (int64, error) {
 }
 
 func insertTrack(t Track) (int64, error) {
-	res, err := db.Exec(`INSERT INTO tracks(album_id,disc,path,track)
-						VALUES(?,?,?,?);`, t.albumID, t.disc, t.path, t.track)
+	res, err := db.Exec(`INSERT INTO tracks(album_id,disc,path,track_number)
+						VALUES(?,?,?,?);`, t.albumID, t.disc, t.path, t.trackNumber)
 	if err != nil {
 		return -1, err
 	}
@@ -351,34 +455,34 @@ func findTrackID(path string) (int64, error) {
 	return trackID, err
 }
 
-func parseAlbumsResults(rows *sql.Rows) []Album {
+func parseAlbumsResults(rows *sql.Rows) ([]Album, error) {
 	var albums []Album
 	for rows.Next() {
 		var a Album
-		err := rows.Scan(&a.id, &a.albumArtist, &a.discs, &a.name, &a.year)
+		err := rows.Scan(&a.id, &a.albumArtist, &a.name, &a.year)
 		if err != nil {
-			log.Fatal(err)
+			return nil, err
 		}
 		albums = append(albums, a)
 	}
-	return albums
+	return albums, nil
 }
 
-func selectPathsFromTracks(a Album) []string {
+func selectPathsFromTracks(a Album) ([]string, error) {
 	query := `SELECT path FROM tracks
-				WHERE album_id = ? ORDER BY track ASC, disc ASC;`
+				WHERE album_id = ? ORDER BY track_number ASC, disc ASC;`
 	rows, err := db.Query(query, a.id)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 	var paths []string
 	for rows.Next() {
 		var p string
 		err := rows.Scan(&p)
 		if err != nil {
-			log.Fatal(err)
+			return nil, err
 		}
 		paths = append(paths, p)
 	}
-	return paths
+	return paths, nil
 }

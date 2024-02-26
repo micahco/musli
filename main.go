@@ -3,42 +3,61 @@ package main
 import (
 	"flag"
 	"log"
-	"os"
-	"path/filepath"
 
 	"github.com/micahco/musli/pkg/musli"
 )
 
 func main() {
-	log.SetFlags(log.LstdFlags | log.Lshortfile) // debugging
-
-	homeDir, err := os.UserHomeDir()
+	configFile, err := musli.ConfigFile()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	cFlag := flag.String("c", filepath.Join(homeDir, ".musli", "config.toml"), "Use config file")
+	cFlag := flag.String("c", configFile, "Use config file")
 	qFlag := flag.String("q", "", "Search query")
 	rFlag := flag.Bool("r", false, "Random albums")
 	sFlag := flag.Bool("s", false, "Scan library")
 	flag.Parse()
 
-	musli.Init(*cFlag)
+	if flag.NFlag() == 0 {
+		flag.Usage()
+		return
+	}
+
+	err = musli.Init(*cFlag)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	if len(*qFlag) > 0 {
-		albums := musli.SearchAlbums(*qFlag, -1, -1)
-		musli.ShowAlbums(albums, 10)
+		albums, err := musli.SearchAlbums(*qFlag)
+		if err != nil {
+			log.Fatal(err)
+		}
+		err = musli.ShowAlbums(albums)
+		if err != nil {
+			log.Fatal(err)
+		}
 		return
 	}
 
 	if *rFlag {
-		albums := musli.RandomAlbums()
-		musli.ShowAlbums(albums, 10)
+		albums, err := musli.RandomAlbums()
+		if err != nil {
+			log.Fatal(err)
+		}
+		err = musli.ShowAlbums(albums)
+		if err != nil {
+			log.Fatal(err)
+		}
 		return
 	}
 
 	if *sFlag {
-		musli.ScanLibrary()
+		err = musli.ScanLibrary()
+		if err != nil {
+			log.Fatal(err)
+		}
 		return
 	}
 }
