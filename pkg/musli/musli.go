@@ -214,11 +214,52 @@ func RandomAlbums() ([]Album, error) {
 	return albums, nil
 }
 
-func SearchAlbums(query string) ([]Album, error) {
-	query = "%" + query + "%"
+func FindAlbumsByNameOrAlbumArtist(query string) ([]Album, error) {
+	a := "%" + query + "%"
 	rows, err := db.Query(`SELECT * FROM albums WHERE
 						name LIKE ? OR album_artist LIKE ?
-						ORDER BY album_artist ASC, name ASC;`, query, query)
+						ORDER BY album_artist ASC, name ASC;`, a, a)
+	if err != nil {
+		return nil, err
+	}
+
+	albums, err := parseRowsToAlbums(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	return albums, nil
+}
+
+func FindAlbumsByYear(query string) ([]Album, error) {
+	var rows *sql.Rows
+	var err error
+
+	if len(query) != 4 && len(query) != 9 {
+		return nil, fmt.Errorf("invalid query: %s", query)
+	}
+
+	s := strings.Split(query, "-")
+	a1, _ := strconv.Atoi(s[0])
+	if a1 == 0 {
+		return nil, fmt.Errorf("invalid query: %s", s[0])
+	}
+
+	if len(s) > 1 {
+		a2, _ := strconv.Atoi(s[1])
+		if a2 == 0 {
+			return nil, fmt.Errorf("invalid query: %s", s[1])
+		}
+
+		rows, err = db.Query(`SELECT * FROM albums WHERE
+						year BETWEEN ? AND ?
+						ORDER BY year ASC, name ASC;`, a1, a2)
+	} else {
+		rows, err = db.Query(`SELECT * FROM albums WHERE
+						year = ?
+						ORDER BY name ASC;`, a1)
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -245,7 +286,10 @@ func Present(albums []Album) error {
 			pos := start + i
 			a := albums[pos]
 			pageAlbums[i] = a
-			fmt.Println("[" + strconv.Itoa(i+1) + "] " + a.albumArtist + " - " + a.name)
+			l := "[" + strconv.Itoa(i+1) + "]"
+			l += " (" + strconv.Itoa(a.year) + ")"
+			l += " " + a.albumArtist + " - " + a.name
+			fmt.Println(l)
 		}
 		fmt.Print("Select (empty = next, 0 = prev): ")
 		scanner.Scan()
