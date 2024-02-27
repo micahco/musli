@@ -1,46 +1,40 @@
 # musli
 
-`musli` is a CLI music library. 
+A music library interface. Unlike most consumer music programs, musli doesn't include an audio player. Instead, it relies on the media player you already have installed (see: [Compatible media players](#compatible-media-players)). Likewise, the program doesn't include any methods to edit metadata, requiring that your music files already be properly tagged.
 
-`musli` is **not**:
+What musli *does* do is provide a fast and efficient way to browse and search your local music libary.
 
-* A music player. Instead, `musli` uses the the media player you already have to handle playback. See [Compatible media players](#compatible-media-players).
+## Options
 
-* A metadata editor. `musli` requires that your music file be properly tagged.
+<code><strong>-c, --config</strong> path</code>
 
-* Built for songs or playlist. `musli` is exclusively made for album playback. This allows it to be very fast and simple.
+Use config file at `path`. Must be a valid `toml` configuration file (see: [Configuration](#configuration)).
 
-## Install  
+<code><strong>-q, --query</strong> query</code>
 
-Refer to the Go programming language documentation: [Compile and install the application](https://go.dev/doc/tutorial/compile-install).
+Search library for album name or album artist that contains `query`.
 
-## Configuration file
+<code><strong>-r, --random</strong></code>
 
-Location: `/home/micah/.config/musli/config.toml`
+List random albums from your music library. Especially convenient for when you don't know what to listen to.
 
-Default values:
+<code><strong>-s, --scan</strong></code>
 
-```
-DbFile = "/home/micah/.state/musli/library.db"
-MusicDir = "/home/micah/Music"
-ExecCmd = "mpv"
-ShowStdout = false
-ShowStderr = false
-```
+Scans your music directory for compatible music files. This may take a while the first time, but subsequent scans (like when you add new files to your music directory) shouldn't take long.
 
-**Note**: use full directory paths `/home/micah/Music`, not: `$HOME/Music` or `~/Music`
+<code><strong>-y, --year</strong> year(-end)</code>
 
-### Options
+List albums from `year`. Or, list albums from range [`year`, `end`] by using `musli -y 1968-1971`
 
-#### DbFile
+## Configuration
 
-Sets the file path to where the SQLite database is stored. You probably won't need to change this.
+Location: `~/.config/musli/config.toml`
 
-#### MusicDir
+**MusicDir**
 
-Recursively find music files in said directory.
+Recursively find music files in said directory. *Default*: `~/Music`
 
-#### ExecCmd
+**ExecCmd**
 
 Set which command to execute when an album is selected. The individual paths for each track of the selected album will be passed as arguments to the command.
 
@@ -48,13 +42,15 @@ For example, if `ExecCmd` was set to `mpv`, a command such as the following woul
 
 `/sbin/mpv "/home/micah/Music/Fiona Apple/Tidal/01 Sleep to Dream.flac" "/home/micah/Music/Fiona Apple/Tidal/02 Sullen Girl.flac" "/home/micah/Music/Fiona Apple/Tidal/03 Shadowboxer.flac" ...`
 
-#### ShowStdout / ShowStderr
+**ShowStdout** / **ShowStderr**
 
 Prints the command's stdout/stderr while the media player is running. Useful for debugging. Should only enable one at a time. If both are set to `true`, stdout takes precedence and stderr will not be printed.
 
 ## Compatible media players
 
-The basic premise is that musli simply launches the medea player with a list of filepaths as arguments. Theoretically, any media player that has a CLI with the pattern should work.
+Any media player that follows the following pattern should work.
+
+`cmd [options] files...`
 
 I have tested it with the following packages on Debian:
 

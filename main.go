@@ -14,10 +14,36 @@ func main() {
 		log.Fatal(err)
 	}
 
-	cFlag := flag.String("c", configFile, "Use config file")
-	qFlag := flag.String("q", "", "Search library for query")
-	rFlag := flag.Bool("r", false, "List random albums")
-	sFlag := flag.Bool("s", false, "Scan music directory to database")
+	var flagC string
+	usageC := "use config at <path>"
+	flag.StringVar(&flagC, "config", configFile, usageC)
+	flag.StringVar(&flagC, "c", configFile, usageC)
+
+	var flagQ string
+	usageQ := "search library for <query>"
+	flag.StringVar(&flagQ, "query", "", usageQ)
+	flag.StringVar(&flagQ, "q", "", usageQ)
+
+	var flagR bool
+	usageR := "list random albums"
+	flag.BoolVar(&flagR, "random", false, usageR)
+	flag.BoolVar(&flagR, "r", false, usageR)
+
+	var flagS bool
+	usageS := "scan music directory to database"
+	flag.BoolVar(&flagS, "scan", false, usageS)
+	flag.BoolVar(&flagS, "s", false, usageS)
+
+	flag.Usage = func() {
+		u := `Usage of musli:
+ -c, --config <path>: %s
+ -q, --query <query>: %s
+ -r, --random: %s
+ -s, --scan: %s
+`
+		f := fmt.Sprintf(u, usageC, usageQ, usageR, usageS)
+		fmt.Print(f)
+	}
 	flag.Parse()
 
 	if flag.NFlag() == 0 {
@@ -25,40 +51,44 @@ func main() {
 		return
 	}
 
-	err = musli.Init(*cFlag)
+	err = musli.Init(flagC)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	if len(*qFlag) > 0 {
-		albums, err := musli.SearchAlbums(*qFlag)
+	if len(flagQ) > 0 {
+		albums, err := musli.SearchAlbums(flagQ)
 		if err != nil {
 			log.Fatal(err)
 		}
-		err = musli.ShowAlbums(albums)
+		if len(albums) == 0 {
+			fmt.Println("musli: no results")
+			return
+		}
+		err = musli.Present(albums)
 		if err != nil {
 			log.Fatal(err)
 		}
 		return
 	}
 
-	if *rFlag {
+	if flagR {
 		albums, err := musli.RandomAlbums()
 		if err != nil {
 			log.Fatal(err)
 		}
 		if len(albums) == 0 {
-			fmt.Println("No entries in database.\nTo scan music directory to databse, run: musli -s")
+			fmt.Println("musli: no results")
 			return
 		}
-		err = musli.ShowAlbums(albums)
+		err = musli.Present(albums)
 		if err != nil {
 			log.Fatal(err)
 		}
 		return
 	}
 
-	if *sFlag {
+	if flagS {
 		err = musli.ScanLibrary()
 		if err != nil {
 			log.Fatal(err)

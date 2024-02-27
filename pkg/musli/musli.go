@@ -35,7 +35,6 @@ type Track struct {
 }
 
 type Config struct {
-	DbFile     string
 	MusicDir   string
 	ExecCmd    string
 	ShowStdout bool
@@ -46,19 +45,17 @@ var db *sql.DB
 var conf Config
 
 func Init(configFile string) error {
+	configFile, err := homedir.Expand(configFile)
+	if err != nil {
+		return err
+	}
 
 	homeDir, err := homedir.Dir()
 	if err != nil {
 		return err
 	}
 
-	appStateDir, err := AppStateDir()
-	if err != nil {
-		return err
-	}
-
 	conf = Config{ // Default values
-		DbFile:     filepath.Join(appStateDir, "library.db"),
 		MusicDir:   filepath.Join(homeDir, "Music"),
 		ExecCmd:    "mpv",
 		ShowStdout: false,
@@ -70,7 +67,13 @@ func Init(configFile string) error {
 		return err
 	}
 
-	db, err = sql.Open("sqlite3", conf.DbFile)
+	appStateDir, err := getAppStateDir()
+	if err != nil {
+		return err
+	}
+	dbFile := filepath.Join(appStateDir, "library.db")
+
+	db, err = sql.Open("sqlite3", dbFile)
 	if err != nil {
 		return err
 	}
@@ -107,54 +110,8 @@ func Init(configFile string) error {
 	return nil
 }
 
-// dirType: XDG user directory (i.e. CONFIG, STATE)
-func getUserDir(dirType string) (string, error) {
-	var userDirPath string
-	appName := "musli"
-
-	homeDir, err := homedir.Dir()
-	if err != nil {
-		return "", err
-	}
-
-	switch runtime.GOOS {
-	case "linux":
-		xdgConfigHome := os.Getenv("XDG_" + strings.ToUpper(dirType) + "_HOME")
-		if xdgConfigHome != "" {
-			userDirPath = xdgConfigHome
-		} else {
-			userDirPath = filepath.Join(homeDir, "."+strings.ToLower(dirType), appName)
-		}
-
-	default:
-		userDirPath = filepath.Join(homeDir, "."+appName)
-	}
-
-	return userDirPath, nil
-}
-
-func AppConfigDir() (string, error) {
-	dir, err := getUserDir("CONFIG")
-	if err != nil {
-		return "", err
-	}
-	return dir, nil
-}
-
-func AppStateDir() (string, error) {
-	dir, err := getUserDir("STATE")
-	if err != nil {
-		return "", err
-	}
-	err = os.MkdirAll(dir, os.ModePerm)
-	if err != nil {
-		return "", err
-	}
-	return dir, nil
-}
-
 func ConfigFile() (string, error) {
-	configDir, err := AppConfigDir()
+	configDir, err := getAppConfigDir()
 	if err != nil {
 		return "", err
 	}
@@ -249,7 +206,7 @@ func RandomAlbums() ([]Album, error) {
 		return nil, err
 	}
 
-	albums, err := parseAlbumsResults(rows)
+	albums, err := parseRowsToAlbums(rows)
 	if err != nil {
 		return nil, err
 	}
@@ -258,23 +215,15 @@ func RandomAlbums() ([]Album, error) {
 }
 
 func SearchAlbums(query string) ([]Album, error) {
-	var args []any
-	for _, s := range strings.Split(query, ",") {
-		s = "%" + s + "%"
-		args = append(args, s, s)
-	}
-
-	q := "SELECT * FROM albums WHERE (name LIKE ? OR album_artist LIKE ?)"
-	for i := 2; i < len(args); i += 2 {
-		q += "\nAND (name LIKE ? OR album_artist LIKE ?)"
-	}
-
-	rows, err := db.Query(q, args...)
+	query = "%" + query + "%"
+	rows, err := db.Query(`SELECT * FROM albums WHERE
+						name LIKE ? OR album_artist LIKE ?
+						ORDER BY album_artist ASC, name ASC;`, query, query)
 	if err != nil {
 		return nil, err
 	}
 
-	albums, err := parseAlbumsResults(rows)
+	albums, err := parseRowsToAlbums(rows)
 	if err != nil {
 		return nil, err
 	}
@@ -282,7 +231,7 @@ func SearchAlbums(query string) ([]Album, error) {
 	return albums, nil
 }
 
-func ShowAlbums(albums []Album) error {
+func Present(albums []Album) error {
 	pageLength := 9
 	start := 0
 	max := len(albums)
@@ -301,9 +250,14 @@ func ShowAlbums(albums []Album) error {
 		fmt.Print("Select (empty = next, 0 = prev): ")
 		scanner.Scan()
 		in := scanner.Text()
-		if in == "0" {
+		if len(in) == 0 {
+			start += pageLength
 			clearScreen()
+			continue
+		}
+		if in == "0" {
 			start -= pageLength
+			clearScreen()
 			continue
 		}
 		i, _ := strconv.Atoi(in)
@@ -337,10 +291,8 @@ func ShowAlbums(albums []Album) error {
 					return err
 				}
 			}
-			return nil
 		}
-		start += pageLength
-		clearScreen()
+		return nil
 	}
 	return nil
 }
@@ -459,7 +411,7 @@ func findTrackID(path string) (int64, error) {
 	return trackID, err
 }
 
-func parseAlbumsResults(rows *sql.Rows) ([]Album, error) {
+func parseRowsToAlbums(rows *sql.Rows) ([]Album, error) {
 	var albums []Album
 	for rows.Next() {
 		var a Album
@@ -474,7 +426,8 @@ func parseAlbumsResults(rows *sql.Rows) ([]Album, error) {
 
 func selectPathsFromTracks(a Album) ([]string, error) {
 	query := `SELECT path FROM tracks
-				WHERE album_id = ? ORDER BY track_number ASC, disc ASC;`
+			WHERE album_id = ?
+			ORDER BY track_number ASC, disc ASC;`
 	rows, err := db.Query(query, a.id)
 	if err != nil {
 		return nil, err
@@ -489,4 +442,50 @@ func selectPathsFromTracks(a Album) ([]string, error) {
 		paths = append(paths, p)
 	}
 	return paths, nil
+}
+
+// dirType: XDG user directory (i.e. CONFIG, STATE)
+func getUserDir(dirType string) (string, error) {
+	var userDirPath string
+	appName := "musli"
+
+	homeDir, err := homedir.Dir()
+	if err != nil {
+		return "", err
+	}
+
+	switch runtime.GOOS {
+	case "linux":
+		xdgUserDir := os.Getenv("XDG_" + strings.ToUpper(dirType) + "_HOME")
+		if xdgUserDir != "" {
+			userDirPath = xdgUserDir
+		} else {
+			userDirPath = filepath.Join(homeDir, "."+strings.ToLower(dirType), appName)
+		}
+
+	default:
+		userDirPath = filepath.Join(homeDir, "."+appName)
+	}
+
+	return userDirPath, nil
+}
+
+func getAppConfigDir() (string, error) {
+	dir, err := getUserDir("CONFIG")
+	if err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+func getAppStateDir() (string, error) {
+	dir, err := getUserDir("STATE")
+	if err != nil {
+		return "", err
+	}
+	err = os.MkdirAll(dir, os.ModePerm)
+	if err != nil {
+		return "", err
+	}
+	return dir, nil
 }
