@@ -1,5 +1,5 @@
 MusicDir = "~/Music"
-ExecCmd = "parole"
-ListTemplate = "%artist% - %album%"
+ExecCmd = "mpv"
+ListTemplate = "(%year%) %artist% - %album%"
 ShowStdout = false
 ShowStderr = false

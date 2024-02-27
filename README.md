@@ -32,6 +32,8 @@ The program uses a [TOML](https://toml.io/en/v1.0.0) configuration file. Each ke
 
 The config file is located at: `~/.config/musli/config.toml` on Unix systems. This file will not be created automatically.
 
+See [config.toml](https://github.com/micahco/musli/blob/main/config.toml) for an example.
+
 ### Parameters
 
 #### MusicDir
