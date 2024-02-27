@@ -35,10 +35,11 @@ type Track struct {
 }
 
 type Config struct {
-	MusicDir   string
-	ExecCmd    string
-	ShowStdout bool
-	ShowStderr bool
+	MusicDir     string
+	ExecCmd      string
+	ListTemplate string
+	ShowStdout   bool
+	ShowStderr   bool
 }
 
 var db *sql.DB
@@ -56,10 +57,11 @@ func Init(configFile string) error {
 	}
 
 	conf = Config{ // Default values
-		MusicDir:   filepath.Join(homeDir, "Music"),
-		ExecCmd:    "mpv",
-		ShowStdout: false,
-		ShowStderr: false,
+		MusicDir:     filepath.Join(homeDir, "Music"),
+		ExecCmd:      "mpv",
+		ListTemplate: "(%year%) %artist% - %album%",
+		ShowStdout:   false,
+		ShowStderr:   false,
 	}
 
 	_, err = toml.DecodeFile(configFile, &conf)
@@ -141,13 +143,12 @@ func ScanLibrary() error {
 		fmt.Print(i, "/", total)
 		fmt.Print("\033[2K\r") // clear line
 
-		// check if filepath is already in database
 		trackID, err := findTrackID(filename)
 		if err != nil {
 			return err
 		}
 		if trackID != -1 {
-			continue
+			continue // path already in db
 		}
 
 		f, err := os.OpenFile(filename, os.O_RDONLY, 0444)
@@ -272,7 +273,7 @@ func FindAlbumsByYear(query string) ([]Album, error) {
 	return albums, nil
 }
 
-func Present(albums []Album) error {
+func ListAlbums(albums []Album) error {
 	pageLength := 9
 	start := 0
 	max := len(albums)
@@ -286,10 +287,11 @@ func Present(albums []Album) error {
 			pos := start + i
 			a := albums[pos]
 			pageAlbums[i] = a
-			l := "[" + strconv.Itoa(i+1) + "]"
-			l += " (" + strconv.Itoa(a.year) + ")"
-			l += " " + a.albumArtist + " - " + a.name
-			fmt.Println(l)
+			l := conf.ListTemplate
+			l = strings.Replace(l, "%album%", a.name, -1)
+			l = strings.Replace(l, "%artist%", a.albumArtist, -1)
+			l = strings.Replace(l, "%year%", strconv.Itoa(a.year), -1)
+			fmt.Println("[" + strconv.Itoa(i+1) + "] " + l)
 		}
 		fmt.Print("Select (empty = next, 0 = prev): ")
 		scanner.Scan()

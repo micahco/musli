@@ -71,7 +71,7 @@ func main() {
 			fmt.Println("musli: no results")
 			return
 		}
-		err = musli.Present(albums)
+		err = musli.ListAlbums(albums)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -87,7 +87,7 @@ func main() {
 			fmt.Println("musli: no results")
 			return
 		}
-		err = musli.Present(albums)
+		err = musli.ListAlbums(albums)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -111,7 +111,7 @@ func main() {
 			fmt.Println("musli: no results")
 			return
 		}
-		err = musli.Present(albums)
+		err = musli.ListAlbums(albums)
 		if err != nil {
 			log.Fatal(err)
 		}

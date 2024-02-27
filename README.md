@@ -16,7 +16,7 @@ Search library for album name or album artist that contains `query`.
 
 <code><strong>-r, --random</strong></code>
 
-List random albums from your music library. Especially convenient for when you don't know what to listen to.
+List random albums from your music library. Convenient for when you don't know what to listen to.
 
 <code><strong>-s, --scan</strong></code>
 
