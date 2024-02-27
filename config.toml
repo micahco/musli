@@ -1,0 +1,5 @@
+MusicDir = "~/Music"
+ExecCmd = "parole"
+ListTemplate = "%artist% - %album%"
+ShowStdout = false
+ShowStderr = false
