@@ -28,21 +28,37 @@ List albums from `year`. Or, list albums from range [`year`, `end`] by using `mu
 
 ## Configuration
 
-Location: `~/.config/musli/config.toml`
+The program uses a [TOML](https://toml.io/en/v1.0.0) configuration file. Each key has a default value.
 
-**MusicDir**
+The config file is located at: `~/.config/musli/config.toml` on Unix systems. This file will not be created automatically.
 
-Recursively find music files in said directory. *Default*: `~/Music`
+### Parameters
 
-**ExecCmd**
+#### MusicDir
 
-Set which command to execute when an album is selected. The individual paths for each track of the selected album will be passed as arguments to the command.
+Default: `"~/Music"`
 
-For example, if `ExecCmd` was set to `mpv`, a command such as the following would be executed:
+Recursively find music files in said directory.
 
-`/sbin/mpv "/home/micah/Music/Fiona Apple/Tidal/01 Sleep to Dream.flac" "/home/micah/Music/Fiona Apple/Tidal/02 Sullen Girl.flac" "/home/micah/Music/Fiona Apple/Tidal/03 Shadowboxer.flac" ...`
+#### ExecCmd
 
-**ShowStdout** / **ShowStderr**
+Default: `"mpv"`
+
+Command to be executed for album playback. The individual paths for each track of the selected album will be passed as arguments to the command.
+
+The command executed will look something like this:
+
+`mpv /path/to/ablum/track1.mp3 /path/to/ablum/track2.mp3 ...`
+
+#### ListTemplate
+
+Default: `"(%year%) %artist% - %album%"`
+
+Customize the album list. The available variables are `%artist%` for album artist, `%album%` for album name, and `%year%` for the release year.
+
+#### ShowStdout / ShowStderr:
+
+Default: both `false`
 
 Prints the command's stdout/stderr while the media player is running. Useful for debugging. Should only enable one at a time. If both are set to `true`, stdout takes precedence and stderr will not be printed.
 
