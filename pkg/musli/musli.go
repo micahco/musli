@@ -80,13 +80,12 @@ func Init(configFile string) error {
 		return err
 	}
 
-	/*	OPTIMIZATIONS
-		executeQuery(db, `PRAGMA journal_mode = OFF;
-						PRAGMA synchronous = 0;
-						PRAGMA cache_size = 1000000;
-						PRAGMA locking_mode = EXCLUSIVE;
-						PRAGMA temp_store = MEMORY;`)
-	*/
+	_, err = db.Exec(`PRAGMA journal_mode = wal;
+					PRAGMA synchronous = normal;
+					PRAGMA foreign_keys = on;`)
+	if err != nil {
+		return err
+	}
 
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS albums(
 		id integer PRIMARY KEY,
@@ -340,6 +339,25 @@ func ListAlbums(albums []Album) error {
 		}
 		return nil
 	}
+	return nil
+}
+
+func CloseDB() error {
+	if db == nil {
+		return nil
+	}
+
+	_, err := db.Exec(`PRAGMA analysis_limit=400;
+					PRAGMA optimize;`)
+	if err != nil {
+		return err
+	}
+
+	err = db.Close()
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 

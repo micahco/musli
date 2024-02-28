@@ -62,6 +62,13 @@ func main() {
 		log.Fatal(err)
 	}
 
+	defer func() {
+		err := musli.CloseDB()
+		if err != nil {
+			log.Fatal(err)
+		}
+	}()
+
 	if len(flagQ) > 0 {
 		albums, err := musli.FindAlbumsByNameOrAlbumArtist(flagQ)
 		if err != nil {
