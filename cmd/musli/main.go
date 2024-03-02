@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	configFile, err := musli.ConfigFile()
+	configFile, err := musli.GetDefaultConfigPath()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -57,20 +57,20 @@ func main() {
 		return
 	}
 
-	err = musli.Init(flagC)
+	conf, db, err := musli.Init(flagC)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	defer func() {
-		err := musli.CloseDB()
+		err := musli.CloseDB(db)
 		if err != nil {
 			log.Fatal(err)
 		}
 	}()
 
 	if len(flagQ) > 0 {
-		albums, err := musli.FindAlbumsByNameOrAlbumArtist(flagQ)
+		albums, err := musli.FindAlbumsByNameOrAlbumArtist(flagQ, db)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -78,7 +78,7 @@ func main() {
 			fmt.Println("musli: no results")
 			return
 		}
-		err = musli.ListAlbums(albums)
+		err = musli.ListAlbums(albums, conf, db)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -86,7 +86,7 @@ func main() {
 	}
 
 	if flagR {
-		albums, err := musli.RandomAlbums()
+		albums, err := musli.RandomAlbums(db)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -94,7 +94,7 @@ func main() {
 			fmt.Println("musli: no results")
 			return
 		}
-		err = musli.ListAlbums(albums)
+		err = musli.ListAlbums(albums, conf, db)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -102,7 +102,7 @@ func main() {
 	}
 
 	if flagS {
-		err = musli.ScanLibrary()
+		err = musli.ScanLibraryToDB(conf, db)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -110,7 +110,7 @@ func main() {
 	}
 
 	if len(flagY) > 0 {
-		albums, err := musli.FindAlbumsByYear(flagY)
+		albums, err := musli.FindAlbumsByYear(flagY, db)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -118,7 +118,7 @@ func main() {
 			fmt.Println("musli: no results")
 			return
 		}
-		err = musli.ListAlbums(albums)
+		err = musli.ListAlbums(albums, conf, db)
 		if err != nil {
 			log.Fatal(err)
 		}

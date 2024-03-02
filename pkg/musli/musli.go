@@ -42,21 +42,22 @@ type Config struct {
 	ShowStderr   bool
 }
 
-var db *sql.DB
-var conf Config
-
-func Init(configFile string) error {
-	configFile, err := homedir.Expand(configFile)
+func GetDefaultConfigPath() (string, error) {
+	configDir, err := getAppConfigDir()
 	if err != nil {
-		return err
+		return "", err
 	}
+	path := filepath.Join(configDir, "config.toml")
+	return path, nil
+}
 
+func Init(configFile string) (*Config, *sql.DB, error) {
 	homeDir, err := homedir.Dir()
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
-	conf = Config{ // Default values
+	conf := Config{ // Default values
 		MusicDir:     filepath.Join(homeDir, "Music"),
 		ExecCmd:      "mpv",
 		ListTemplate: "(%year%) %artist% - %album%",
@@ -64,27 +65,32 @@ func Init(configFile string) error {
 		ShowStderr:   false,
 	}
 
+	configFile, err = homedir.Expand(configFile)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	_, err = toml.DecodeFile(configFile, &conf)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	appStateDir, err := getAppStateDir()
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	dbFile := filepath.Join(appStateDir, "library.db")
 
-	db, err = sql.Open("sqlite3", dbFile)
+	db, err := sql.Open("sqlite3", dbFile)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	_, err = db.Exec(`PRAGMA journal_mode = wal;
 					PRAGMA synchronous = normal;
 					PRAGMA foreign_keys = on;`)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS albums(
@@ -94,7 +100,7 @@ func Init(configFile string) error {
 		year INTEGER
 	);`)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS tracks(
@@ -105,22 +111,13 @@ func Init(configFile string) error {
 		track_number INTEGER
 	);`)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
-	return nil
+	return &conf, db, nil
 }
 
-func ConfigFile() (string, error) {
-	configDir, err := getAppConfigDir()
-	if err != nil {
-		return "", err
-	}
-	path := filepath.Join(configDir, "config.toml")
-	return path, nil
-}
-
-func ScanLibrary() error {
+func ScanLibraryToDB(conf *Config, db *sql.DB) error {
 	var filenames []string
 	err := filepath.Walk(conf.MusicDir, func(path string, info fs.FileInfo, err error) error {
 		if err != nil {
@@ -140,9 +137,8 @@ func ScanLibrary() error {
 	}
 	for i, filename := range filenames {
 		fmt.Print(i, "/", total)
-		fmt.Print("\033[2K\r") // clear line
 
-		trackID, err := findTrackID(filename)
+		trackID, err := findTrackID(filename, db)
 		if err != nil {
 			return err
 		}
@@ -169,12 +165,12 @@ func ScanLibrary() error {
 			a.year = readAltYearMetadata(m)
 		}
 
-		albumID, err := findAlbumID(a)
+		albumID, err := findAlbumID(a, db)
 		if err != nil {
 			return err
 		}
 		if albumID == -1 {
-			albumID, err = insertAlbum(a)
+			albumID, err = insertAlbum(a, db)
 			if err != nil {
 				return err
 			}
@@ -189,10 +185,12 @@ func ScanLibrary() error {
 			trackNumber: trackNumber,
 		}
 
-		_, err = insertTrack(t)
+		_, err = insertTrack(t, db)
 		if err != nil {
 			return err
 		}
+
+		fmt.Print("\033[2K\r") // clear line
 	}
 	if err != nil {
 		return err
@@ -200,7 +198,7 @@ func ScanLibrary() error {
 	return nil
 }
 
-func RandomAlbums() ([]Album, error) {
+func RandomAlbums(db *sql.DB) ([]Album, error) {
 	rows, err := db.Query("SELECT * FROM albums ORDER BY RANDOM();")
 	if err != nil {
 		return nil, err
@@ -214,7 +212,7 @@ func RandomAlbums() ([]Album, error) {
 	return albums, nil
 }
 
-func FindAlbumsByNameOrAlbumArtist(query string) ([]Album, error) {
+func FindAlbumsByNameOrAlbumArtist(query string, db *sql.DB) ([]Album, error) {
 	a := "%" + query + "%"
 	rows, err := db.Query(`SELECT * FROM albums WHERE
 						name LIKE ? OR album_artist LIKE ?
@@ -231,7 +229,7 @@ func FindAlbumsByNameOrAlbumArtist(query string) ([]Album, error) {
 	return albums, nil
 }
 
-func FindAlbumsByYear(query string) ([]Album, error) {
+func FindAlbumsByYear(query string, db *sql.DB) ([]Album, error) {
 	var rows *sql.Rows
 	var err error
 
@@ -272,7 +270,26 @@ func FindAlbumsByYear(query string) ([]Album, error) {
 	return albums, nil
 }
 
-func ListAlbums(albums []Album) error {
+func CloseDB(db *sql.DB) error {
+	if db == nil {
+		return nil
+	}
+
+	_, err := db.Exec(`PRAGMA analysis_limit=400;
+					PRAGMA optimize;`)
+	if err != nil {
+		return err
+	}
+
+	err = db.Close()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func ListAlbums(albums []Album, conf *Config, db *sql.DB) error {
 	pageLength := 9
 	start := 0
 	max := len(albums)
@@ -307,7 +324,7 @@ func ListAlbums(albums []Album) error {
 		}
 		i, _ := strconv.Atoi(in)
 		if i > 0 && i < len(pageAlbums) {
-			paths, err := selectPathsFromTracks(pageAlbums[i-1])
+			paths, err := selectPathsFromTracks(pageAlbums[i-1], db)
 			if err != nil {
 				return err
 			}
@@ -339,25 +356,6 @@ func ListAlbums(albums []Album) error {
 		}
 		return nil
 	}
-	return nil
-}
-
-func CloseDB() error {
-	if db == nil {
-		return nil
-	}
-
-	_, err := db.Exec(`PRAGMA analysis_limit=400;
-					PRAGMA optimize;`)
-	if err != nil {
-		return err
-	}
-
-	err = db.Close()
-	if err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -425,7 +423,7 @@ func isValidFileType(path string) bool {
 	return false
 }
 
-func insertAlbum(a Album) (int64, error) {
+func insertAlbum(a Album, db *sql.DB) (int64, error) {
 	res, err := db.Exec(`INSERT INTO albums(album_artist,name,year)
 						VALUES(?,?,?);`, a.albumArtist, a.name, a.year)
 	if err != nil {
@@ -438,7 +436,7 @@ func insertAlbum(a Album) (int64, error) {
 	return albumID, nil
 }
 
-func findAlbumID(a Album) (int64, error) {
+func findAlbumID(a Album, db *sql.DB) (int64, error) {
 	query := `SELECT id FROM albums
 			WHERE album_artist = ? AND name = ? AND year = ?;`
 	row := db.QueryRow(query, a.albumArtist, a.name, a.year)
@@ -450,7 +448,7 @@ func findAlbumID(a Album) (int64, error) {
 	return albumID, err
 }
 
-func insertTrack(t Track) (int64, error) {
+func insertTrack(t Track, db *sql.DB) (int64, error) {
 	res, err := db.Exec(`INSERT INTO tracks(album_id,disc,path,track_number)
 						VALUES(?,?,?,?);`, t.albumID, t.disc, t.path, t.trackNumber)
 	if err != nil {
@@ -463,7 +461,7 @@ func insertTrack(t Track) (int64, error) {
 	return trackID, nil
 }
 
-func findTrackID(path string) (int64, error) {
+func findTrackID(path string, db *sql.DB) (int64, error) {
 	query := `SELECT id FROM tracks
 			WHERE path = ?;`
 	row := db.QueryRow(query, path)
@@ -488,7 +486,7 @@ func parseRowsToAlbums(rows *sql.Rows) ([]Album, error) {
 	return albums, nil
 }
 
-func selectPathsFromTracks(a Album) ([]string, error) {
+func selectPathsFromTracks(a Album, db *sql.DB) ([]string, error) {
 	query := `SELECT path FROM tracks
 			WHERE album_id = ?
 			ORDER BY track_number ASC, disc ASC;`
