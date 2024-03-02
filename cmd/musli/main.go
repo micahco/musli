@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/micahco/musli/pkg/musli"
+	"github.com/micahco/musli/internal/musli"
 )
 
 func main() {
