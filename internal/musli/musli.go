@@ -27,7 +27,6 @@ type Album struct {
 }
 
 type Track struct {
-	id          int64
 	albumID     int64
 	disc        int
 	path        string
@@ -38,6 +37,7 @@ type Config struct {
 	MusicDir     string
 	ExecCmd      string
 	ListTemplate string
+	PageLength   int
 	ShowStdout   bool
 	ShowStderr   bool
 }
@@ -88,6 +88,7 @@ func Init(configFile string) (*Config, *sql.DB, error) {
 		MusicDir:     filepath.Join(homeDir, "Music"),
 		ExecCmd:      "mpv",
 		ListTemplate: "%artist% - %album%",
+		PageLength:   10,
 		ShowStdout:   false,
 		ShowStderr:   false,
 	}
@@ -310,41 +311,44 @@ func CloseDB(db *sql.DB) error {
 }
 
 func ListAlbums(albums []Album, conf *Config, db *sql.DB) error {
-	pageLength := 9
+	pageLength := conf.PageLength
 	start := 0
 	sel := 0
 	max := len(albums)
+
+	hideCursor()
 
 	if err := keyboard.Open(); err != nil {
 		panic(err)
 	}
 	defer func() {
-		fmt.Print("\033[H\033[2J", "\x1b[?25h") // clear screen, show cursor
+		clearScreen()
+		showCursor()
 		_ = keyboard.Close()
 	}()
 
 	for {
-		fmt.Print("\033[H\033[2J", "\x1b[?25l") // clear screen, hide cursor
-
+		clearScreen()
 		if start < 0 {
 			start = 0
 		}
-
-		var pageAlbums = make([]Album, pageLength)
+		if sel < 0 || start+sel >= max {
+			sel = 0
+		}
+		var pageAlbums []Album
 		for i := 0; i < pageLength && start+i < len(albums); i++ {
 			pos := start + i
 			a := albums[pos]
-			pageAlbums[i] = a
+			pageAlbums = append(pageAlbums, a)
 			l := conf.ListTemplate
 			l = strings.Replace(l, "%album%", a.name, -1)
 			l = strings.Replace(l, "%artist%", a.albumArtist, -1)
 			l = strings.Replace(l, "%year%", strconv.Itoa(a.year), -1)
+			p := "  "
 			if sel == i {
-				l = "> " + l
-			} else {
-				l = "  " + l
+				p = "> "
 			}
-			fmt.Println(l)
+			fmt.Println(p + l)
 		}
 
 		char, key, err := keyboard.GetKey()
@@ -367,12 +371,10 @@ func ListAlbums(albums []Album, conf *Config, db *sql.DB) error {
 			continue
 		}
 		if (char == 'h' || key == keyboard.KeyArrowLeft) && start-pageLength >= 0 {
-			sel = 0
 			start -= pageLength
 			continue
 		}
 		if (char == 'l' || key == keyboard.KeyArrowRight) && start+pageLength <= max {
-			sel = 0
 			start += pageLength
 			continue
 		}
@@ -416,10 +418,6 @@ func PlayAlbum(a Album, conf *Config, db *sql.DB) error {
 	return nil
 }
 
-func clearScreen() {
-	fmt.Print("\033[H\033[2J")
-}
-
 func startCmdWithOutput(cmd *exec.Cmd, r io.ReadCloser) error {
 	err := cmd.Start()
 	if err != nil {
@@ -435,6 +433,18 @@ func startCmdWithOutput(cmd *exec.Cmd, r io.ReadCloser) error {
 		return err
 	}
 	return nil
+}
+
+func hideCursor() {
+	fmt.Print("\x1b[?25l")
+}
+
+func showCursor() {
+	fmt.Print("\x1b[?25h")
+}
+
+func clearScreen() {
+	fmt.Print("\033[H\033[2J")
 }
 
 func readAltYearMetadata(m tag.Metadata) int {
