@@ -15,8 +15,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/dhowden/tag"
+	"github.com/eiannone/keyboard"
 	_ "github.com/mattn/go-sqlite3"
-	"github.com/mitchellh/go-homedir"
 )
 
 type Album struct {
@@ -43,16 +43,43 @@ type Config struct {
 }
 
 func GetDefaultConfigPath() (string, error) {
-	configDir, err := getAppConfigDir()
+	configDir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
 	}
-	path := filepath.Join(configDir, "config.toml")
+	path := filepath.Join(configDir, "musli", "config.toml")
 	return path, nil
 }
 
+func GetAppDir() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+
+	var appDir string
+	appName := "musli"
+	if runtime.GOOS == "linux" {
+		xdgUserDir := os.Getenv("XDG_STATE_HOME")
+		if xdgUserDir != "" {
+			appDir = filepath.Join(xdgUserDir, appName)
+		} else {
+			appDir = filepath.Join(homeDir, ".state", appName)
+		}
+	} else {
+		appDir = filepath.Join(homeDir, "."+appName)
+	}
+
+	err = os.MkdirAll(appDir, os.ModePerm)
+	if err != nil {
+		return "", err
+	}
+
+	return appDir, nil
+}
+
 func Init(configFile string) (*Config, *sql.DB, error) {
-	homeDir, err := homedir.Dir()
+	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -60,14 +87,9 @@ func Init(configFile string) (*Config, *sql.DB, error) {
 	conf := Config{ // Default values
 		MusicDir:     filepath.Join(homeDir, "Music"),
 		ExecCmd:      "mpv",
-		ListTemplate: "(%year%) %artist% - %album%",
+		ListTemplate: "%artist% - %album%",
 		ShowStdout:   false,
 		ShowStderr:   false,
-	}
-
-	configFile, err = homedir.Expand(configFile)
-	if err != nil {
-		return nil, nil, err
 	}
 
 	_, err = toml.DecodeFile(configFile, &conf)
@@ -75,13 +97,12 @@ func Init(configFile string) (*Config, *sql.DB, error) {
 		return nil, nil, err
 	}
 
-	appStateDir, err := getAppStateDir()
+	appDir, err := GetAppDir()
 	if err != nil {
 		return nil, nil, err
 	}
-	dbFile := filepath.Join(appStateDir, "library.db")
 
-	db, err := sql.Open("sqlite3", dbFile)
+	db, err := sql.Open("sqlite3", filepath.Join(appDir, "library.db"))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -94,22 +115,22 @@ func Init(configFile string) (*Config, *sql.DB, error) {
 	}
 
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS albums(
-		id integer PRIMARY KEY,
-		album_artist TEXT,
-		name TEXT,
-		year INTEGER
-	);`)
+						id integer PRIMARY KEY,
+						album_artist TEXT,
+						name TEXT,
+						year INTEGER
+					);`)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS tracks(
-		id integer PRIMARY KEY,
-		album_id INTEGER,
-		disc INTEGER,
-		path TEXT,
-		track_number INTEGER
-	);`)
+						id integer PRIMARY KEY,
+						album_id INTEGER,
+						disc INTEGER,
+						path TEXT,
+						track_number INTEGER
+					);`)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -136,7 +157,7 @@ func ScanLibraryToDB(conf *Config, db *sql.DB) error {
 		return nil
 	}
 	for i, filename := range filenames {
-		fmt.Print(i, "/", total)
+		fmt.Print("\033[2K\r", i, "/", total)
 
 		trackID, err := findTrackID(filename, db)
 		if err != nil {
@@ -189,12 +210,11 @@ func ScanLibraryToDB(conf *Config, db *sql.DB) error {
 		if err != nil {
 			return err
 		}
-
-		fmt.Print("\033[2K\r") // clear line
 	}
 	if err != nil {
 		return err
 	}
+	fmt.Println("\033[2K\rScanned", total, "files")
 	return nil
 }
 
@@ -250,12 +270,12 @@ func FindAlbumsByYear(query string, db *sql.DB) ([]Album, error) {
 		}
 
 		rows, err = db.Query(`SELECT * FROM albums WHERE
-						year BETWEEN ? AND ?
-						ORDER BY year ASC, name ASC;`, a1, a2)
+							year BETWEEN ? AND ?
+							ORDER BY year ASC, album_artist ASC, name ASC;`, a1, a2)
 	} else {
 		rows, err = db.Query(`SELECT * FROM albums WHERE
-						year = ?
-						ORDER BY name ASC;`, a1)
+							year = ?
+							ORDER BY album_artist ASC, name ASC;`, a1)
 	}
 
 	if err != nil {
@@ -292,14 +312,26 @@ func CloseDB(db *sql.DB) error {
 func ListAlbums(albums []Album, conf *Config, db *sql.DB) error {
 	pageLength := 9
 	start := 0
+	sel := 0
 	max := len(albums)
-	scanner := bufio.NewScanner(os.Stdin)
-	for start < max {
+
+	if err := keyboard.Open(); err != nil {
+		panic(err)
+	}
+	defer func() {
+		fmt.Print("\033[H\033[2J", "\x1b[?25h") // clear screen, show cursor
+		_ = keyboard.Close()
+	}()
+
+	for {
+		fmt.Print("\033[H\033[2J", "\x1b[?25l") // clear screen, hide cursor
+
 		if start < 0 {
 			start = 0
 		}
+
 		var pageAlbums = make([]Album, pageLength)
-		for i := 0; i < pageLength && i < max; i++ {
+		for i := 0; i < pageLength && start+i < len(albums); i++ {
 			pos := start + i
 			a := albums[pos]
 			pageAlbums[i] = a
@@ -307,54 +339,79 @@ func ListAlbums(albums []Album, conf *Config, db *sql.DB) error {
 			l = strings.Replace(l, "%album%", a.name, -1)
 			l = strings.Replace(l, "%artist%", a.albumArtist, -1)
 			l = strings.Replace(l, "%year%", strconv.Itoa(a.year), -1)
-			fmt.Println("[" + strconv.Itoa(i+1) + "] " + l)
+			if sel == i {
+				l = "> " + l
+			} else {
+				l = "  " + l
+			}
+			fmt.Println(l)
 		}
-		fmt.Print("Select (empty = next, 0 = prev): ")
-		scanner.Scan()
-		in := scanner.Text()
-		if len(in) == 0 {
-			start += pageLength
-			clearScreen()
-			continue
+
+		char, key, err := keyboard.GetKey()
+		if err != nil {
+			return err
 		}
-		if in == "0" {
-			start -= pageLength
-			clearScreen()
-			continue
-		}
-		i, _ := strconv.Atoi(in)
-		if i > 0 && i < len(pageAlbums) {
-			paths, err := selectPathsFromTracks(pageAlbums[i-1], db)
+		if key == keyboard.KeySpace || key == keyboard.KeyEnter {
+			err := PlayAlbum(pageAlbums[sel], conf, db)
 			if err != nil {
 				return err
 			}
-			cmd := exec.Command(conf.ExecCmd, paths...)
-			if conf.ShowStdout {
-				stdout, err := cmd.StdoutPipe()
-				if err != nil {
-					return err
-				}
-				err = startCmdWithOutput(cmd, stdout)
-				if err != nil {
-					return err
-				}
-			} else if conf.ShowStderr {
-				stderr, err := cmd.StderrPipe()
-				if err != nil {
-					return err
-				}
-				err = startCmdWithOutput(cmd, stderr)
-				if err != nil {
-					return err
-				}
-			} else {
-				err := cmd.Start()
-				if err != nil {
-					return err
-				}
-			}
+			return nil
 		}
-		return nil
+		if (char == 'j' || key == keyboard.KeyArrowDown) && sel < pageLength-1 && start+sel < len(albums)-1 {
+			sel += 1
+			continue
+		}
+		if (char == 'k' || key == keyboard.KeyArrowUp) && sel > 0 {
+			sel -= 1
+			continue
+		}
+		if (char == 'h' || key == keyboard.KeyArrowLeft) && start-pageLength >= 0 {
+			sel = 0
+			start -= pageLength
+			continue
+		}
+		if (char == 'l' || key == keyboard.KeyArrowRight) && start+pageLength <= max {
+			sel = 0
+			start += pageLength
+			continue
+		}
+		if char == 'q' || key == keyboard.KeyCtrlC || key == keyboard.KeyCtrlD {
+			break
+		}
+	}
+	return nil
+}
+
+func PlayAlbum(a Album, conf *Config, db *sql.DB) error {
+	paths, err := selectPathsFromTracks(a, db)
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(conf.ExecCmd, paths...)
+	if conf.ShowStdout {
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			return err
+		}
+		err = startCmdWithOutput(cmd, stdout)
+		if err != nil {
+			return err
+		}
+	} else if conf.ShowStderr {
+		stderr, err := cmd.StderrPipe()
+		if err != nil {
+			return err
+		}
+		err = startCmdWithOutput(cmd, stderr)
+		if err != nil {
+			return err
+		}
+	} else {
+		err := cmd.Start()
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -504,50 +561,4 @@ func selectPathsFromTracks(a Album, db *sql.DB) ([]string, error) {
 		paths = append(paths, p)
 	}
 	return paths, nil
-}
-
-// dirType: XDG user directory (i.e. CONFIG, STATE)
-func getUserDir(dirType string) (string, error) {
-	var userDirPath string
-	appName := "musli"
-
-	homeDir, err := homedir.Dir()
-	if err != nil {
-		return "", err
-	}
-
-	switch runtime.GOOS {
-	case "linux":
-		xdgUserDir := os.Getenv("XDG_" + strings.ToUpper(dirType) + "_HOME")
-		if xdgUserDir != "" {
-			userDirPath = xdgUserDir
-		} else {
-			userDirPath = filepath.Join(homeDir, "."+strings.ToLower(dirType), appName)
-		}
-
-	default:
-		userDirPath = filepath.Join(homeDir, "."+appName)
-	}
-
-	return userDirPath, nil
-}
-
-func getAppConfigDir() (string, error) {
-	dir, err := getUserDir("CONFIG")
-	if err != nil {
-		return "", err
-	}
-	return dir, nil
-}
-
-func getAppStateDir() (string, error) {
-	dir, err := getUserDir("STATE")
-	if err != nil {
-		return "", err
-	}
-	err = os.MkdirAll(dir, os.ModePerm)
-	if err != nil {
-		return "", err
-	}
-	return dir, nil
 }

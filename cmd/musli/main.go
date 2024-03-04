@@ -102,6 +102,7 @@ func main() {
 	}
 
 	if flagS {
+		fmt.Println("Scanning library...")
 		err = musli.ScanLibraryToDB(conf, db)
 		if err != nil {
 			log.Fatal(err)

@@ -54,7 +54,7 @@ The command executed will look something like this:
 
 #### ListTemplate
 
-Default: `"(%year%) %artist% - %album%"`
+Default: `"%artist% - %album%"`
 
 Customize the album list. The available variables are `%artist%` for album artist, `%album%` for album name, and `%year%` for the release year.
 

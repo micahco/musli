@@ -1,5 +1,5 @@
-MusicDir = "~/Music"
+MusicDir = "/nfs/m600/music"
 ExecCmd = "mpv"
-ListTemplate = "(%year%) %artist% - %album%"
+ListTemplate = "%artist% - %album%"
 ShowStdout = false
 ShowStderr = false
