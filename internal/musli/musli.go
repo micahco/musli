@@ -37,6 +37,7 @@ type Config struct {
 	MusicDir     string
 	ExecCmd      string
 	ListTemplate string
+	SelectColor  int
 	PageLength   int
 	ShowStdout   bool
 	ShowStderr   bool
@@ -88,6 +89,7 @@ func Init(configFile string) (*Config, *sql.DB, error) {
 		MusicDir:     filepath.Join(homeDir, "Music"),
 		ExecCmd:      "mpv",
 		ListTemplate: "%artist% - %album%",
+		SelectColor:  3,
 		PageLength:   10,
 		ShowStdout:   false,
 		ShowStderr:   false,
@@ -344,11 +346,10 @@ func ListAlbums(albums []Album, conf *Config, db *sql.DB) error {
 			l = strings.Replace(l, "%album%", a.name, -1)
 			l = strings.Replace(l, "%artist%", a.albumArtist, -1)
 			l = strings.Replace(l, "%year%", strconv.Itoa(a.year), -1)
-			p := "  "
 			if sel == i {
-				p = "> "
+				l = highlight(l, conf.SelectColor)
 			}
-			fmt.Println(p + l)
+			fmt.Println(l)
 		}
 
 		char, key, err := keyboard.GetKey()
@@ -445,6 +446,22 @@ func showCursor() {
 
 func clearScreen() {
 	fmt.Print("\033[H\033[2J")
+}
+
+func colorOutput(c int) string {
+	escape := "\x1b"
+	if c == 0 {
+		return fmt.Sprintf("%s[%dm", escape, c)
+	}
+
+	return fmt.Sprintf("%s[3%dm", escape, c)
+}
+
+func highlight(text string, color int) string {
+	if runtime.GOOS == "windows" || color == 0 {
+		return "> " + text
+	}
+	return colorOutput(color) + text + colorOutput(0)
 }
 
 func readAltYearMetadata(m tag.Metadata) int {

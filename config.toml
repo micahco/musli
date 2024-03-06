@@ -1,6 +1,7 @@
 MusicDir = "/nfs/m600/music"
 ExecCmd = "mpv"
 ListTemplate = "%artist% - %album%"
+SelectColor = 1
 PageLength = 10
 ShowStdout = false
 ShowStderr = false
