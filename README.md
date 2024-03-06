@@ -58,6 +58,14 @@ Default: `"%artist% - %album%"`
 
 Customize the album list. The available variables are `%artist%` for album artist, `%album%` for album name, and `%year%` for the release year.
 
+#### SelectColor
+
+Default: `"yellow"`
+
+Valid: `"red"`, `"green"`, `"yellow"`, `"blue"`, `"magenta"`, `"cyan"`, `"grey"`.
+
+Defines the color of the selected album when searching for albums. Can also be set to `"none"` which will add a marker to the selected text instead of color.
+
 #### ShowStdout / ShowStderr:
 
 Default: both `false`
@@ -70,9 +78,9 @@ Any media player that follows the following pattern should work.
 
 `cmd [options] files...`
 
-I have tested it with the following packages on Debian:
+Tested:
 
 * mpv
-* mplayer
 * vlc
+* mplayer
 * parole

@@ -37,7 +37,7 @@ type Config struct {
 	MusicDir     string
 	ExecCmd      string
 	ListTemplate string
-	SelectColor  int
+	SelectColor  string
 	PageLength   int
 	ShowStdout   bool
 	ShowStderr   bool
@@ -89,7 +89,7 @@ func Init(configFile string) (*Config, *sql.DB, error) {
 		MusicDir:     filepath.Join(homeDir, "Music"),
 		ExecCmd:      "mpv",
 		ListTemplate: "%artist% - %album%",
-		SelectColor:  3,
+		SelectColor:  "yellow",
 		PageLength:   10,
 		ShowStdout:   false,
 		ShowStderr:   false,
@@ -347,7 +347,7 @@ func ListAlbums(albums []Album, conf *Config, db *sql.DB) error {
 			l = strings.Replace(l, "%artist%", a.albumArtist, -1)
 			l = strings.Replace(l, "%year%", strconv.Itoa(a.year), -1)
 			if sel == i {
-				l = highlight(l, conf.SelectColor)
+				l = selectText(l, conf.SelectColor)
 			}
 			fmt.Println(l)
 		}
@@ -448,20 +448,36 @@ func clearScreen() {
 	fmt.Print("\033[H\033[2J")
 }
 
-func colorOutput(c int) string {
-	escape := "\x1b"
-	if c == 0 {
-		return fmt.Sprintf("%s[%dm", escape, c)
-	}
-
-	return fmt.Sprintf("%s[3%dm", escape, c)
+func addColorToText(c int, text string) string {
+	return fmt.Sprintf("\x1b[3%dm%s\x1b[0m", c, text)
 }
 
-func highlight(text string, color int) string {
-	if runtime.GOOS == "windows" || color == 0 {
-		return "> " + text
+func markText(text string) string {
+	return fmt.Sprintf("> %s", text)
+}
+
+func selectText(text string, color string) string {
+	if runtime.GOOS == "windows" {
+		return markText(text)
 	}
-	return colorOutput(color) + text + colorOutput(0)
+	switch strings.ToLower(color) {
+	case "red":
+		return addColorToText(1, text)
+	case "green":
+		return addColorToText(2, text)
+	case "yellow":
+		return addColorToText(3, text)
+	case "blue":
+		return addColorToText(4, text)
+	case "magenta":
+		return addColorToText(5, text)
+	case "cyan":
+		return addColorToText(6, text)
+	case "grey":
+		return addColorToText(7, text)
+	default:
+		return markText(text)
+	}
 }
 
 func readAltYearMetadata(m tag.Metadata) int {
