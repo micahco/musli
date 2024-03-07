@@ -29,10 +29,11 @@ func main() {
 	flag.BoolVar(&flagR, "r", false, usageR)
 	flag.BoolVar(&flagR, "random", false, usageR)
 
-	var flagS bool
+	var flagS, flagNew bool
 	usageS := "scan music directory to database"
 	flag.BoolVar(&flagS, "s", false, usageS)
 	flag.BoolVar(&flagS, "scan", false, usageS)
+	flag.BoolVar(&flagNew, "new", false, "")
 
 	var flagY string
 	usageY := "find albums from <year> or range <year-end>"
@@ -44,7 +45,7 @@ func main() {
  -c, --config <path>: %s
  -q, --query <query>: %s
  -r, --random: %s
- -s, --scan: %s
+ -s, --scan (--new): %s
  -y, --year <year(-end)>: %s
 `
 		f := fmt.Sprintf(u, usageC, usageQ, usageR, usageS, usageY)
@@ -102,6 +103,9 @@ func main() {
 	}
 
 	if flagS {
+		if flagNew {
+			musli.RemoveLibrary()
+		}
 		fmt.Println("Scanning library...")
 		err = musli.ScanLibraryToDB(conf, db)
 		if err != nil {

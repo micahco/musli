@@ -17,6 +17,7 @@ import (
 	"github.com/dhowden/tag"
 	"github.com/eiannone/keyboard"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/micahco/musli/internal/term"
 )
 
 type Album struct {
@@ -37,7 +38,7 @@ type Config struct {
 	MusicDir     string
 	ExecCmd      string
 	ListTemplate string
-	SelectColor  string
+	HiglightSGR  int
 	PageLength   int
 	ShowStdout   bool
 	ShowStderr   bool
@@ -50,6 +51,14 @@ func GetDefaultConfigPath() (string, error) {
 	}
 	path := filepath.Join(configDir, "musli", "config.toml")
 	return path, nil
+}
+
+func GetLibraryPath() (string, error) {
+	appDir, err := GetAppDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(appDir, "library.db"), nil
 }
 
 func GetAppDir() (string, error) {
@@ -89,7 +98,7 @@ func Init(configFile string) (*Config, *sql.DB, error) {
 		MusicDir:     filepath.Join(homeDir, "Music"),
 		ExecCmd:      "mpv",
 		ListTemplate: "%artist% - %album%",
-		SelectColor:  "yellow",
+		HiglightSGR:  35,
 		PageLength:   10,
 		ShowStdout:   false,
 		ShowStderr:   false,
@@ -100,12 +109,12 @@ func Init(configFile string) (*Config, *sql.DB, error) {
 		return nil, nil, err
 	}
 
-	appDir, err := GetAppDir()
+	libraryPath, err := GetLibraryPath()
 	if err != nil {
 		return nil, nil, err
 	}
 
-	db, err := sql.Open("sqlite3", filepath.Join(appDir, "library.db"))
+	db, err := sql.Open("sqlite3", libraryPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -139,6 +148,20 @@ func Init(configFile string) (*Config, *sql.DB, error) {
 	}
 
 	return &conf, db, nil
+}
+
+func RemoveLibrary() error {
+	libraryPath, err := GetLibraryPath()
+	if err != nil {
+		return err
+	}
+
+	e := os.Remove(libraryPath)
+	if e != nil {
+		return err
+	}
+
+	return nil
 }
 
 func ScanLibraryToDB(conf *Config, db *sql.DB) error {
@@ -313,24 +336,23 @@ func CloseDB(db *sql.DB) error {
 }
 
 func ListAlbums(albums []Album, conf *Config, db *sql.DB) error {
+	err := keyboard.Open()
+	if err != nil {
+		return err
+	}
+
+	term.Clear()
+
+	defer func() {
+		term.Clear()
+		_ = keyboard.Close()
+	}()
+
 	pageLength := conf.PageLength
 	start := 0
 	sel := 0
 	max := len(albums)
-
-	hideCursor()
-
-	if err := keyboard.Open(); err != nil {
-		panic(err)
-	}
-	defer func() {
-		clearScreen()
-		showCursor()
-		_ = keyboard.Close()
-	}()
-
 	for {
-		clearScreen()
 		if start < 0 {
 			start = 0
 		}
@@ -347,11 +369,10 @@ func ListAlbums(albums []Album, conf *Config, db *sql.DB) error {
 			l = strings.Replace(l, "%artist%", a.albumArtist, -1)
 			l = strings.Replace(l, "%year%", strconv.Itoa(a.year), -1)
 			if sel == i {
-				l = selectText(l, conf.SelectColor)
+				l = term.Highlight(l, conf.HiglightSGR)
 			}
 			fmt.Println(l)
 		}
-
 		char, key, err := keyboard.GetKey()
 		if err != nil {
 			return err
@@ -436,48 +457,8 @@ func startCmdWithOutput(cmd *exec.Cmd, r io.ReadCloser) error {
 	return nil
 }
 
-func hideCursor() {
-	fmt.Print("\x1b[?25l")
-}
-
-func showCursor() {
-	fmt.Print("\x1b[?25h")
-}
-
-func clearScreen() {
-	fmt.Print("\033[H\033[2J")
-}
-
-func addColorToText(c int, text string) string {
-	return fmt.Sprintf("\x1b[3%dm%s\x1b[0m", c, text)
-}
-
 func markText(text string) string {
 	return fmt.Sprintf("> %s", text)
-}
-
-func selectText(text string, color string) string {
-	if runtime.GOOS == "windows" {
-		return markText(text)
-	}
-	switch strings.ToLower(color) {
-	case "red":
-		return addColorToText(1, text)
-	case "green":
-		return addColorToText(2, text)
-	case "yellow":
-		return addColorToText(3, text)
-	case "blue":
-		return addColorToText(4, text)
-	case "magenta":
-		return addColorToText(5, text)
-	case "cyan":
-		return addColorToText(6, text)
-	case "grey":
-		return addColorToText(7, text)
-	default:
-		return markText(text)
-	}
 }
 
 func readAltYearMetadata(m tag.Metadata) int {
