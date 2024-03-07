@@ -341,11 +341,11 @@ func ListAlbums(albums []Album, conf *Config, db *sql.DB) error {
 		return err
 	}
 
-	term.Clear()
-
+	term.HideCursor()
 	defer func() {
-		term.Clear()
 		_ = keyboard.Close()
+		term.Clear()
+		term.ShowCursor()
 	}()
 
 	pageLength := conf.PageLength
@@ -353,6 +353,7 @@ func ListAlbums(albums []Album, conf *Config, db *sql.DB) error {
 	sel := 0
 	max := len(albums)
 	for {
+		term.Clear()
 		if start < 0 {
 			start = 0
 		}

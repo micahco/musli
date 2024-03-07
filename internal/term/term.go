@@ -4,16 +4,16 @@ import "fmt"
 
 const escape = "\033"
 
-func Clear() string {
-	return fmt.Sprintf("%s[H%s[2J", escape, escape)
+func Clear() {
+	fmt.Printf("%s[H%s[2J", escape, escape)
 }
 
-func HideCursor() string {
-	return fmt.Sprintf("%s[?25l", escape)
+func HideCursor() {
+	fmt.Printf("%s[?25l", escape)
 }
 
-func ShowCursor() string {
-	return fmt.Sprintf("%s[?25h", escape)
+func ShowCursor() {
+	fmt.Printf("%s[?25h", escape)
 }
 
 func Highlight(text string, sgr int) string {
