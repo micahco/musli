@@ -58,13 +58,15 @@ Default: `"%artist% - %album%"`
 
 Customize the album list. The available variables are `%artist%` for album artist, `%album%` for album name, and `%year%` for the release year.
 
-#### SelectColor
+#### HiglightSGR
 
-Default: `"yellow"`
+Default: `[ 1 ]`
 
-Valid: `"red"`, `"green"`, `"yellow"`, `"blue"`, `"magenta"`, `"cyan"`, `"grey"`.
+Select Graphic Rendition (SGR) parameters for the highlighted albun. Must be a valid integer array. See [SGR parameters](https://en.wikipedia.org/wiki/ANSI_escape_code#SGR_(Select_Graphic_Rendition)_parameters) for valid values.
 
-Defines the color of the selected album when searching for albums. Can also be set to `"none"` which will add a marker to the selected text instead of color.
+Examples:
+* Bold, magenta foreground: `[1 35]`
+* Black foreground, white background: `[30, 47]`
 
 #### ShowStdout / ShowStderr:
 

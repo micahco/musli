@@ -1,6 +1,10 @@
 package term
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+)
 
 const escape = "\033"
 
@@ -16,6 +20,10 @@ func ShowCursor() {
 	fmt.Printf("%s[?25h", escape)
 }
 
-func Highlight(text string, sgr int) string {
-	return fmt.Sprintf("%s[1;%dm%s%s[1;0m", escape, sgr, text, escape)
+func SprintSGR(text string, sgr ...int) string {
+	var p []string
+	for _, i := range sgr {
+		p = append(p, strconv.Itoa(i))
+	}
+	return fmt.Sprintf("%s[%sm%s%s[1;0m", escape, strings.Join(p, ";"), text, escape)
 }

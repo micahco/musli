@@ -9,7 +9,4 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.22
 )
 
-require (
-	github.com/leandroveronezi/go-terminal v1.3.7 // indirect
-	golang.org/x/sys v0.18.0 // indirect
-)
+require golang.org/x/sys v0.18.0 // indirect

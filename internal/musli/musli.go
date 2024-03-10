@@ -38,7 +38,7 @@ type Config struct {
 	MusicDir     string
 	ExecCmd      string
 	ListTemplate string
-	HiglightSGR  int
+	HiglightSGR  []int
 	PageLength   int
 	ShowStdout   bool
 	ShowStderr   bool
@@ -98,7 +98,7 @@ func Init(configFile string) (*Config, *sql.DB, error) {
 		MusicDir:     filepath.Join(homeDir, "Music"),
 		ExecCmd:      "mpv",
 		ListTemplate: "%artist% - %album%",
-		HiglightSGR:  35,
+		HiglightSGR:  []int{1},
 		PageLength:   10,
 		ShowStdout:   false,
 		ShowStderr:   false,
@@ -370,7 +370,7 @@ func ListAlbums(albums []Album, conf *Config, db *sql.DB) error {
 			l = strings.Replace(l, "%artist%", a.albumArtist, -1)
 			l = strings.Replace(l, "%year%", strconv.Itoa(a.year), -1)
 			if sel == i {
-				l = term.Highlight(l, conf.HiglightSGR)
+				l = term.SprintSGR(l, conf.HiglightSGR...)
 			}
 			fmt.Println(l)
 		}
