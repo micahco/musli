@@ -8,16 +8,20 @@ import (
 
 const escape = "\033"
 
-func Clear() {
-	fmt.Printf("%s[H%s[2J", escape, escape)
-}
-
 func HideCursor() {
 	fmt.Printf("%s[?25l", escape)
 }
 
 func ShowCursor() {
 	fmt.Printf("%s[?25h", escape)
+}
+
+func Clear() {
+	fmt.Printf("%s[H%s[2J", escape, escape)
+}
+
+func ClearLine(a ...any) {
+	fmt.Printf("%s[2K\r%s", escape, fmt.Sprint(a...))
 }
 
 func SprintSGR(text string, sgr ...int) string {

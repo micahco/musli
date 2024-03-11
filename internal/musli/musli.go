@@ -3,6 +3,7 @@ package musli
 import (
 	"bufio"
 	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -150,21 +151,7 @@ func Init(configFile string) (*Config, *sql.DB, error) {
 	return &conf, db, nil
 }
 
-func RemoveLibrary() error {
-	libraryPath, err := GetLibraryPath()
-	if err != nil {
-		return err
-	}
-
-	e := os.Remove(libraryPath)
-	if e != nil {
-		return err
-	}
-
-	return nil
-}
-
-func ScanLibraryToDB(conf *Config, db *sql.DB) error {
+func ScanLibrary(conf *Config, db *sql.DB) error {
 	var filenames []string
 	err := filepath.Walk(conf.MusicDir, func(path string, info fs.FileInfo, err error) error {
 		if err != nil {
@@ -183,7 +170,7 @@ func ScanLibraryToDB(conf *Config, db *sql.DB) error {
 		return nil
 	}
 	for i, filename := range filenames {
-		fmt.Print("\033[2K\r", i, "/", total)
+		term.ClearLine("Scanned ", i, "/", total)
 
 		trackID, err := findTrackID(filename, db)
 		if err != nil {
@@ -240,7 +227,45 @@ func ScanLibraryToDB(conf *Config, db *sql.DB) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("\033[2K\rScanned", total, "files")
+	term.ClearLine("Scanned ", total, " files\n")
+	return nil
+}
+
+func CleanLibrary(conf *Config, db *sql.DB) error {
+	paths, err := getAllTrackPaths(db)
+	if err != nil {
+		return err
+	}
+
+	for _, p := range paths {
+		_, err := os.Stat(p)
+		if errors.Is(err, os.ErrNotExist) {
+			_, err := db.Exec(`DELETE FROM tracks WHERE path = ?`, p)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	albumIDs, err := getAllAlbumIDs(db)
+	if err != nil {
+		return err
+	}
+
+	for _, id := range albumIDs {
+		a := Album{id: id}
+		t, err := getAlbumTrackPaths(a, db)
+		if err != nil {
+			return err
+		}
+		if len(t) < 1 {
+			_, err := db.Exec(`DELETE FROM albums WHERE id = ?`, id)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -409,7 +434,7 @@ func ListAlbums(albums []Album, conf *Config, db *sql.DB) error {
 }
 
 func PlayAlbum(a Album, conf *Config, db *sql.DB) error {
-	paths, err := selectPathsFromTracks(a, db)
+	paths, err := getAlbumTrackPaths(a, db)
 	if err != nil {
 		return err
 	}
@@ -456,10 +481,6 @@ func startCmdWithOutput(cmd *exec.Cmd, r io.ReadCloser) error {
 		return err
 	}
 	return nil
-}
-
-func markText(text string) string {
-	return fmt.Sprintf("> %s", text)
 }
 
 func readAltYearMetadata(m tag.Metadata) int {
@@ -555,6 +576,53 @@ func findTrackID(path string, db *sql.DB) (int64, error) {
 	return trackID, err
 }
 
+func getAlbumTrackPaths(a Album, db *sql.DB) ([]string, error) {
+	query := `SELECT path FROM tracks
+			WHERE album_id = ?
+			ORDER BY track_number ASC, disc ASC;`
+	rows, err := db.Query(query, a.id)
+	if err != nil {
+		return nil, err
+	}
+
+	paths, err := parseRowsToTrackPaths(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	return paths, nil
+}
+
+func getAllTrackPaths(db *sql.DB) ([]string, error) {
+	query := `SELECT path FROM tracks`
+	rows, err := db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+
+	paths, err := parseRowsToTrackPaths(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	return paths, nil
+}
+
+func getAllAlbumIDs(db *sql.DB) ([]int64, error) {
+	query := `SELECT id FROM albums`
+	rows, err := db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+
+	albumIDs, err := parseRowsToAlbumIDs(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	return albumIDs, nil
+}
+
 func parseRowsToAlbums(rows *sql.Rows) ([]Album, error) {
 	var albums []Album
 	for rows.Next() {
@@ -568,14 +636,20 @@ func parseRowsToAlbums(rows *sql.Rows) ([]Album, error) {
 	return albums, nil
 }
 
-func selectPathsFromTracks(a Album, db *sql.DB) ([]string, error) {
-	query := `SELECT path FROM tracks
-			WHERE album_id = ?
-			ORDER BY track_number ASC, disc ASC;`
-	rows, err := db.Query(query, a.id)
-	if err != nil {
-		return nil, err
+func parseRowsToAlbumIDs(rows *sql.Rows) ([]int64, error) {
+	var albumIDs []int64
+	for rows.Next() {
+		var a int64
+		err := rows.Scan(&a)
+		if err != nil {
+			return nil, err
+		}
+		albumIDs = append(albumIDs, a)
 	}
+	return albumIDs, nil
+}
+
+func parseRowsToTrackPaths(rows *sql.Rows) ([]string, error) {
 	var paths []string
 	for rows.Next() {
 		var p string

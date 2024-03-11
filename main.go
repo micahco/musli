@@ -29,11 +29,15 @@ func main() {
 	flag.BoolVar(&flagR, "r", false, usageR)
 	flag.BoolVar(&flagR, "random", false, usageR)
 
-	var flagS, flagNew bool
-	usageS := "scan music directory to database"
+	var flagS bool
+	usageS := "scan music directory for new files"
 	flag.BoolVar(&flagS, "s", false, usageS)
 	flag.BoolVar(&flagS, "scan", false, usageS)
-	flag.BoolVar(&flagNew, "new", false, "")
+
+	var flagT bool
+	usageT := "scrub library for entries that no longer exist"
+	flag.BoolVar(&flagT, "t", false, usageT)
+	flag.BoolVar(&flagT, "tidy", false, usageT)
 
 	var flagY string
 	usageY := "find albums from <year> or range <year-end>"
@@ -45,10 +49,11 @@ func main() {
  -c, --config <path>: %s
  -q, --query <query>: %s
  -r, --random: %s
- -s, --scan (--new): %s
+ -s, --scan: %s
+ -t, --tidy: %s
  -y, --year <year(-end)>: %s
 `
-		f := fmt.Sprintf(u, usageC, usageQ, usageR, usageS, usageY)
+		f := fmt.Sprintf(u, usageC, usageQ, usageR, usageS, usageT, usageY)
 		fmt.Print(f)
 	}
 	flag.Parse()
@@ -103,11 +108,17 @@ func main() {
 	}
 
 	if flagS {
-		if flagNew {
-			musli.RemoveLibrary()
-		}
 		fmt.Println("Scanning library...")
-		err = musli.ScanLibraryToDB(conf, db)
+		err = musli.ScanLibrary(conf, db)
+		if err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+
+	if flagT {
+		fmt.Println("Cleaning library...")
+		err = musli.CleanLibrary(conf, db)
 		if err != nil {
 			log.Fatal(err)
 		}

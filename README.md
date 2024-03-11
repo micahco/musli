@@ -20,7 +20,11 @@ List random albums from your music library. Convenient for when you don't know w
 
 <code><strong>-s, --scan</strong></code>
 
-Scans your music directory for compatible music files. This may take a while the first time, but subsequent scans (like when you add new files to your music directory) shouldn't take long.
+Scans your music directory for compatible music files. This may take a while the first time, but subsequent scans should be faster (for when you add new files to your music directory).
+
+<code><strong>-t, --tidy</strong></code>
+
+Scrubs library for any files that no longer exist. Run this after you delete files from your music directory.
 
 <code><strong>-y, --year</strong> year(-end)</code>
 
