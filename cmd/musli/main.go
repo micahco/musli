@@ -3,15 +3,23 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
+	"os"
 
 	"github.com/micahco/musli"
+	"github.com/micahco/musli/cmd/musli/term"
 )
 
 func main() {
+	var exitCode int
+	defer func() {
+		os.Exit(exitCode)
+	}()
+
 	configFile, err := musli.GetDefaultConfigPath()
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println(err)
+		exitCode = 1
+		return
 	}
 
 	var flagC string
@@ -65,28 +73,28 @@ func main() {
 
 	conf, db, err := musli.Init(flagC)
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println(err)
+		exitCode = 1
+		return
 	}
 
-	defer func() {
-		err := musli.CloseDB(db)
-		if err != nil {
-			log.Fatal(err)
-		}
-	}()
+	defer musli.CloseDB(db)
 
 	if len(flagQ) > 0 {
 		albums, err := musli.FindAlbumsByNameOrAlbumArtist(flagQ, db)
 		if err != nil {
-			log.Fatal(err)
+			fmt.Println(err)
+			exitCode = 1
+			return
 		}
 		if len(albums) == 0 {
 			fmt.Println("musli: no results")
 			return
 		}
-		err = musli.ListAlbums(albums, conf, db)
+		err = term.CLI(albums, conf, db)
 		if err != nil {
-			log.Fatal(err)
+			fmt.Println(err)
+			exitCode = 1
 		}
 		return
 	}
@@ -94,24 +102,28 @@ func main() {
 	if flagR {
 		albums, err := musli.RandomAlbums(db)
 		if err != nil {
-			log.Fatal(err)
+			fmt.Println(err)
+			exitCode = 1
+			return
 		}
 		if len(albums) == 0 {
 			fmt.Println("musli: no results")
 			return
 		}
-		err = musli.ListAlbums(albums, conf, db)
+		err = term.CLI(albums, conf, db)
 		if err != nil {
-			log.Fatal(err)
+			fmt.Println(err)
+			exitCode = 1
 		}
 		return
 	}
 
 	if flagS {
 		fmt.Println("Scanning library...")
-		err = musli.ScanLibrary(conf, db)
+		err = musli.ScanLibrary(conf, db, term.ClearLine)
 		if err != nil {
-			log.Fatal(err)
+			fmt.Println(err)
+			exitCode = 1
 		}
 		return
 	}
@@ -120,7 +132,8 @@ func main() {
 		fmt.Println("Cleaning library...")
 		err = musli.CleanLibrary(conf, db)
 		if err != nil {
-			log.Fatal(err)
+			fmt.Println(err)
+			exitCode = 1
 		}
 		return
 	}
@@ -128,15 +141,18 @@ func main() {
 	if len(flagY) > 0 {
 		albums, err := musli.FindAlbumsByYear(flagY, db)
 		if err != nil {
-			log.Fatal(err)
+			fmt.Println(err)
+			exitCode = 1
+			return
 		}
 		if len(albums) == 0 {
 			fmt.Println("musli: no results")
 			return
 		}
-		err = musli.ListAlbums(albums, conf, db)
+		err = term.CLI(albums, conf, db)
 		if err != nil {
-			log.Fatal(err)
+			fmt.Println(err)
+			exitCode = 1
 		}
 		return
 	}

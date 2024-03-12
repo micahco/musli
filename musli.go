@@ -16,23 +16,21 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/dhowden/tag"
-	"github.com/eiannone/keyboard"
 	_ "github.com/mattn/go-sqlite3"
-	"github.com/micahco/musli/internal/term"
 )
 
 type Album struct {
-	id          int64
-	albumArtist string
-	name        string
-	year        int
+	ID          int64
+	AlbumArtist string
+	Name        string
+	Year        int
 }
 
 type Track struct {
-	albumID     int64
-	disc        int
-	path        string
-	trackNumber int
+	AlbumID     int64
+	Disc        int
+	Path        string
+	TrackNumber int
 }
 
 type Config struct {
@@ -151,7 +149,7 @@ func Init(configFile string) (*Config, *sql.DB, error) {
 	return &conf, db, nil
 }
 
-func ScanLibrary(conf *Config, db *sql.DB) error {
+func ScanLibrary(conf *Config, db *sql.DB, log func(...any)) error {
 	var filenames []string
 	err := filepath.Walk(conf.MusicDir, func(path string, info fs.FileInfo, err error) error {
 		if err != nil {
@@ -170,7 +168,7 @@ func ScanLibrary(conf *Config, db *sql.DB) error {
 		return nil
 	}
 	for i, filename := range filenames {
-		term.ClearLine("Scanned ", i, "/", total)
+		log("Scanned ", i, "/", total)
 
 		trackID, err := findTrackID(filename, db)
 		if err != nil {
@@ -191,12 +189,12 @@ func ScanLibrary(conf *Config, db *sql.DB) error {
 		}
 
 		a := Album{
-			albumArtist: m.AlbumArtist(),
-			name:        m.Album(),
-			year:        m.Year(),
+			AlbumArtist: m.AlbumArtist(),
+			Name:        m.Album(),
+			Year:        m.Year(),
 		}
 		if m.Year() == 0 {
-			a.year = readAltYearMetadata(m)
+			a.Year = readAltYearMetadata(m)
 		}
 
 		albumID, err := findAlbumID(a, db)
@@ -213,10 +211,10 @@ func ScanLibrary(conf *Config, db *sql.DB) error {
 		disc, _ := m.Disc()
 		trackNumber, _ := m.Track()
 		t := Track{
-			albumID:     int64(albumID),
-			disc:        disc,
-			path:        filename,
-			trackNumber: trackNumber,
+			AlbumID:     int64(albumID),
+			Disc:        disc,
+			Path:        filename,
+			TrackNumber: trackNumber,
 		}
 
 		_, err = insertTrack(t, db)
@@ -227,7 +225,7 @@ func ScanLibrary(conf *Config, db *sql.DB) error {
 	if err != nil {
 		return err
 	}
-	term.ClearLine("Scanned ", total, " files\n")
+	log("Scanned ", total, " files\n")
 	return nil
 }
 
@@ -253,7 +251,7 @@ func CleanLibrary(conf *Config, db *sql.DB) error {
 	}
 
 	for _, id := range albumIDs {
-		a := Album{id: id}
+		a := Album{ID: id}
 		t, err := getAlbumTrackPaths(a, db)
 		if err != nil {
 			return err
@@ -300,24 +298,32 @@ func FindAlbumsByNameOrAlbumArtist(query string, db *sql.DB) ([]Album, error) {
 	return albums, nil
 }
 
+type YearQueryError struct {
+	Query string
+}
+
+func (qe *YearQueryError) Error() string {
+	return fmt.Sprintf("musli: invalid year query: %s", qe.Query)
+}
+
 func FindAlbumsByYear(query string, db *sql.DB) ([]Album, error) {
 	var rows *sql.Rows
 	var err error
 
 	if len(query) != 4 && len(query) != 9 {
-		return nil, fmt.Errorf("invalid query: %s", query)
+		return nil, &YearQueryError{query}
 	}
 
 	s := strings.Split(query, "-")
 	a1, _ := strconv.Atoi(s[0])
 	if a1 == 0 {
-		return nil, fmt.Errorf("invalid query: %s", s[0])
+		return nil, &YearQueryError{s[0]}
 	}
 
 	if len(s) > 1 {
 		a2, _ := strconv.Atoi(s[1])
 		if a2 == 0 {
-			return nil, fmt.Errorf("invalid query: %s", s[1])
+			return nil, &YearQueryError{s[1]}
 		}
 
 		rows, err = db.Query(`SELECT * FROM albums WHERE
@@ -357,79 +363,6 @@ func CloseDB(db *sql.DB) error {
 		return err
 	}
 
-	return nil
-}
-
-func ListAlbums(albums []Album, conf *Config, db *sql.DB) error {
-	err := keyboard.Open()
-	if err != nil {
-		return err
-	}
-
-	term.HideCursor()
-	defer func() {
-		_ = keyboard.Close()
-		term.Clear()
-		term.ShowCursor()
-	}()
-
-	pageLength := conf.PageLength
-	start := 0
-	sel := 0
-	max := len(albums)
-	for {
-		term.Clear()
-		if start < 0 {
-			start = 0
-		}
-		if sel < 0 || start+sel >= max {
-			sel = 0
-		}
-		var pageAlbums []Album
-		for i := 0; i < pageLength && start+i < len(albums); i++ {
-			pos := start + i
-			a := albums[pos]
-			pageAlbums = append(pageAlbums, a)
-			l := conf.ListTemplate
-			l = strings.Replace(l, "%album%", a.name, -1)
-			l = strings.Replace(l, "%artist%", a.albumArtist, -1)
-			l = strings.Replace(l, "%year%", strconv.Itoa(a.year), -1)
-			if sel == i {
-				l = term.SprintSGR(l, conf.HiglightSGR...)
-			}
-			fmt.Println(l)
-		}
-		char, key, err := keyboard.GetKey()
-		if err != nil {
-			return err
-		}
-		if key == keyboard.KeySpace || key == keyboard.KeyEnter {
-			err := PlayAlbum(pageAlbums[sel], conf, db)
-			if err != nil {
-				return err
-			}
-			return nil
-		}
-		if (char == 'j' || key == keyboard.KeyArrowDown) && sel < pageLength-1 && start+sel < len(albums)-1 {
-			sel += 1
-			continue
-		}
-		if (char == 'k' || key == keyboard.KeyArrowUp) && sel > 0 {
-			sel -= 1
-			continue
-		}
-		if (char == 'h' || key == keyboard.KeyArrowLeft) && start-pageLength >= 0 {
-			start -= pageLength
-			continue
-		}
-		if (char == 'l' || key == keyboard.KeyArrowRight) && start+pageLength <= max {
-			start += pageLength
-			continue
-		}
-		if char == 'q' || key == keyboard.KeyCtrlC || key == keyboard.KeyCtrlD {
-			break
-		}
-	}
 	return nil
 }
 
@@ -528,7 +461,7 @@ func isValidFileType(path string) bool {
 
 func insertAlbum(a Album, db *sql.DB) (int64, error) {
 	res, err := db.Exec(`INSERT INTO albums(album_artist,name,year)
-						VALUES(?,?,?);`, a.albumArtist, a.name, a.year)
+						VALUES(?,?,?);`, a.AlbumArtist, a.Name, a.Year)
 	if err != nil {
 		return -1, err
 	}
@@ -542,7 +475,7 @@ func insertAlbum(a Album, db *sql.DB) (int64, error) {
 func findAlbumID(a Album, db *sql.DB) (int64, error) {
 	query := `SELECT id FROM albums
 			WHERE album_artist = ? AND name = ? AND year = ?;`
-	row := db.QueryRow(query, a.albumArtist, a.name, a.year)
+	row := db.QueryRow(query, a.AlbumArtist, a.Name, a.Year)
 	var albumID int64
 	err := row.Scan(&albumID)
 	if err == sql.ErrNoRows {
@@ -553,7 +486,7 @@ func findAlbumID(a Album, db *sql.DB) (int64, error) {
 
 func insertTrack(t Track, db *sql.DB) (int64, error) {
 	res, err := db.Exec(`INSERT INTO tracks(album_id,disc,path,track_number)
-						VALUES(?,?,?,?);`, t.albumID, t.disc, t.path, t.trackNumber)
+						VALUES(?,?,?,?);`, t.AlbumID, t.Disc, t.Path, t.TrackNumber)
 	if err != nil {
 		return -1, err
 	}
@@ -580,7 +513,7 @@ func getAlbumTrackPaths(a Album, db *sql.DB) ([]string, error) {
 	query := `SELECT path FROM tracks
 			WHERE album_id = ?
 			ORDER BY track_number ASC, disc ASC;`
-	rows, err := db.Query(query, a.id)
+	rows, err := db.Query(query, a.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -627,7 +560,7 @@ func parseRowsToAlbums(rows *sql.Rows) ([]Album, error) {
 	var albums []Album
 	for rows.Next() {
 		var a Album
-		err := rows.Scan(&a.id, &a.albumArtist, &a.name, &a.year)
+		err := rows.Scan(&a.ID, &a.AlbumArtist, &a.Name, &a.Year)
 		if err != nil {
 			return nil, err
 		}
