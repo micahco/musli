@@ -252,7 +252,7 @@ func CleanLibrary(conf *Config, db *sql.DB) error {
 
 	for _, id := range albumIDs {
 		a := Album{ID: id}
-		t, err := getAlbumTrackPaths(a, db)
+		t, err := getAlbumTrackPaths(a.ID, db)
 		if err != nil {
 			return err
 		}
