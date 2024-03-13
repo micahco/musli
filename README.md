@@ -72,7 +72,7 @@ Customize the album list. The available variables are `%artist%` for album artis
 
 Default: `[ 1 ]`
 
-Select Graphic Rendition (SGR) parameters for the highlighted albun. Must be a valid integer array. See [SGR parameters](https://en.wikipedia.org/wiki/ANSI_escape_code#SGR_(Select_Graphic_Rendition)_parameters) for valid values.
+Select Graphic Rendition (SGR) parameters for the highlighted albun. Must be a valid integer array. See [SGR parameters (Wikipedia)](https://en.wikipedia.org/wiki/ANSI_escape_code#SGR_(Select_Graphic_Rendition)_parameters) for valid values.
 
 Examples:
 * Bold, magenta foreground: `[ 1, 35 ]`

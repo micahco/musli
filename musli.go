@@ -366,8 +366,8 @@ func CloseDB(db *sql.DB) error {
 	return nil
 }
 
-func PlayAlbum(a Album, conf *Config, db *sql.DB) error {
-	paths, err := getAlbumTrackPaths(a, db)
+func PlayAlbum(albumID int64, conf *Config, db *sql.DB) error {
+	paths, err := getAlbumTrackPaths(albumID, db)
 	if err != nil {
 		return err
 	}
@@ -509,11 +509,11 @@ func findTrackID(path string, db *sql.DB) (int64, error) {
 	return trackID, err
 }
 
-func getAlbumTrackPaths(a Album, db *sql.DB) ([]string, error) {
+func getAlbumTrackPaths(albumID int64, db *sql.DB) ([]string, error) {
 	query := `SELECT path FROM tracks
 			WHERE album_id = ?
 			ORDER BY track_number ASC, disc ASC;`
-	rows, err := db.Query(query, a.ID)
+	rows, err := db.Query(query, albumID)
 	if err != nil {
 		return nil, err
 	}
