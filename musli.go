@@ -281,6 +281,20 @@ func RandomAlbums(db *sql.DB) ([]Album, error) {
 	return albums, nil
 }
 
+func GetAlbums(db *sql.DB) ([]Album, error) {
+	rows, err := db.Query("SELECT * FROM albums ORDER BY id DESC;")
+	if err != nil {
+		return nil, err
+	}
+
+	albums, err := parseRowsToAlbums(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	return albums, nil
+}
+
 func FindAlbumsByNameOrAlbumArtist(query string, db *sql.DB) ([]Album, error) {
 	a := "%" + query + "%"
 	rows, err := db.Query(`SELECT * FROM albums WHERE
