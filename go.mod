@@ -1,6 +1,6 @@
 module github.com/micahco/musli
 
-go 1.22.0
+go 1.22.1
 
 require (
 	github.com/BurntSushi/toml v1.3.2
@@ -9,4 +9,4 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.22
 )
 
-require golang.org/x/sys v0.18.0 // indirect
+require golang.org/x/sys v0.0.0-20220520151302-bc2c85ada10a // indirect

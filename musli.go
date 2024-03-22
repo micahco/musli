@@ -149,7 +149,7 @@ func Init(configFile string) (*Config, *sql.DB, error) {
 	return &conf, db, nil
 }
 
-func ScanLibrary(conf *Config, db *sql.DB, log func(...any)) error {
+func WalkLibrary(conf *Config) ([]string, error) {
 	var filenames []string
 	err := filepath.Walk(conf.MusicDir, func(path string, info fs.FileInfo, err error) error {
 		if err != nil {
@@ -162,13 +162,12 @@ func ScanLibrary(conf *Config, db *sql.DB, log func(...any)) error {
 
 		return nil
 	})
+	return filenames, err
+}
 
-	total := len(filenames)
-	if total == 0 {
-		return nil
-	}
+func ScanLibrary(filenames []string, db *sql.DB, counter func(count int)) error {
 	for i, filename := range filenames {
-		log("Scanned ", i, "/", total)
+		counter(i)
 
 		trackID, err := findTrackID(filename, db)
 		if err != nil {
@@ -222,10 +221,6 @@ func ScanLibrary(conf *Config, db *sql.DB, log func(...any)) error {
 			return err
 		}
 	}
-	if err != nil {
-		return err
-	}
-	log("Scanned ", total, " files\n")
 	return nil
 }
 
@@ -245,14 +240,14 @@ func CleanLibrary(conf *Config, db *sql.DB) error {
 		}
 	}
 
-	albumIDs, err := getAllAlbumIDs(db)
+	albumIDs, err := GetAllAlbumIDs(db)
 	if err != nil {
 		return err
 	}
 
 	for _, id := range albumIDs {
 		a := Album{ID: id}
-		t, err := getAlbumTrackPaths(a.ID, db)
+		t, err := GetAlbumTrackPaths(a.ID, db)
 		if err != nil {
 			return err
 		}
@@ -282,7 +277,7 @@ func RandomAlbums(db *sql.DB) ([]Album, error) {
 }
 
 func GetAlbums(db *sql.DB) ([]Album, error) {
-	rows, err := db.Query("SELECT * FROM albums ORDER BY id DESC;")
+	rows, err := db.Query("SELECT * FROM albums;")
 	if err != nil {
 		return nil, err
 	}
@@ -316,8 +311,8 @@ type YearQueryError struct {
 	Query string
 }
 
-func (qe *YearQueryError) Error() string {
-	return fmt.Sprintf("musli: invalid year query: %s", qe.Query)
+func (err *YearQueryError) Error() string {
+	return fmt.Sprintf("musli: invalid year query: %s", err.Query)
 }
 
 func FindAlbumsByYear(query string, db *sql.DB) ([]Album, error) {
@@ -381,7 +376,7 @@ func CloseDB(db *sql.DB) error {
 }
 
 func PlayAlbum(albumID int64, conf *Config, db *sql.DB) error {
-	paths, err := getAlbumTrackPaths(albumID, db)
+	paths, err := GetAlbumTrackPaths(albumID, db)
 	if err != nil {
 		return err
 	}
@@ -523,7 +518,7 @@ func findTrackID(path string, db *sql.DB) (int64, error) {
 	return trackID, err
 }
 
-func getAlbumTrackPaths(albumID int64, db *sql.DB) ([]string, error) {
+func GetAlbumTrackPaths(albumID int64, db *sql.DB) ([]string, error) {
 	query := `SELECT path FROM tracks
 			WHERE album_id = ?
 			ORDER BY track_number ASC, disc ASC;`
@@ -555,7 +550,7 @@ func getAllTrackPaths(db *sql.DB) ([]string, error) {
 	return paths, nil
 }
 
-func getAllAlbumIDs(db *sql.DB) ([]int64, error) {
+func GetAllAlbumIDs(db *sql.DB) ([]int64, error) {
 	query := `SELECT id FROM albums`
 	rows, err := db.Query(query)
 	if err != nil {

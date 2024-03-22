@@ -119,12 +119,22 @@ func main() {
 	}
 
 	if flagS {
-		fmt.Println("Scanning library...")
-		err = musli.ScanLibrary(conf, db, term.ClearLine)
+		fmt.Print("Scanning library...")
+		filenames, err := musli.WalkLibrary(conf)
 		if err != nil {
 			fmt.Println(err)
 			exitCode = 1
 		}
+		total := len(filenames)
+
+		err = musli.ScanLibrary(filenames, db, func(i int) {
+			term.ClearLine(i, "/", total)
+		})
+		if err != nil {
+			fmt.Println(err)
+			exitCode = 1
+		}
+		term.ClearLine("Scanned ", total, " files\n")
 		return
 	}
 

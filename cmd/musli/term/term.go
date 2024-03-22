@@ -80,7 +80,7 @@ func CLI(albums []musli.Album, conf *musli.Config, db *sql.DB) error {
 			return err
 		}
 		if key == keyboard.KeySpace || key == keyboard.KeyEnter {
-			err := musli.PlayAlbum(pageAlbums[sel], conf, db)
+			err := musli.PlayAlbum(pageAlbums[sel].ID, conf, db)
 			if err != nil {
 				return err
 			}

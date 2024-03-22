@@ -1,4 +1,4 @@
-MusicDir = "/nfs/m600/music"
+MusicDir = "/media/sda1/music"
 ExecCmd = "mpv"
 ListTemplate = "%artist% - %album%"
 HiglightSGR = [ 30, 47 ]
