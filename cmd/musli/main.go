@@ -71,7 +71,21 @@ func main() {
 		return
 	}
 
-	conf, db, err := musli.Init(flagC)
+	conf, err := musli.ReadConfig(flagC)
+	if err != nil {
+		fmt.Println(err)
+		exitCode = 1
+		return
+	}
+
+	path, err := musli.GetDBPath()
+	if err != nil {
+		fmt.Println(err)
+		exitCode = 1
+		return
+	}
+
+	db, err := musli.OpenDB(path)
 	if err != nil {
 		fmt.Println(err)
 		exitCode = 1
@@ -100,7 +114,7 @@ func main() {
 	}
 
 	if flagR {
-		albums, err := musli.RandomAlbums(db)
+		albums, err := musli.FetchRandomAlbums(db)
 		if err != nil {
 			fmt.Println(err)
 			exitCode = 1
@@ -120,14 +134,14 @@ func main() {
 
 	if flagS {
 		fmt.Print("Scanning library...")
-		filenames, err := musli.WalkLibrary(conf)
+		paths, err := musli.WalkLibrary(conf)
 		if err != nil {
 			fmt.Println(err)
 			exitCode = 1
 		}
-		total := len(filenames)
+		total := len(paths)
 
-		err = musli.ScanLibrary(filenames, db, func(i int) {
+		err = musli.AddPathsToLibrary(paths, db, func(i int) {
 			term.ClearLine(i, "/", total)
 		})
 		if err != nil {
@@ -140,7 +154,20 @@ func main() {
 
 	if flagT {
 		fmt.Println("Cleaning library...")
-		err = musli.CleanLibrary(conf, db)
+
+		paths, err := musli.FetchTrackPaths(db)
+		if err != nil {
+			fmt.Println(err)
+			exitCode = 1
+		}
+
+		err = musli.RemoveNotExistPaths(paths, db)
+		if err != nil {
+			fmt.Println(err)
+			exitCode = 1
+		}
+
+		err = musli.RemoveEmptyAlbums(db)
 		if err != nil {
 			fmt.Println(err)
 			exitCode = 1
