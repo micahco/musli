@@ -5,36 +5,13 @@ A music library interface. Unlike most consumer music programs, musli doesn't in
 What musli *does* do is provide a fast and efficient way to browse and search your local music libary.
 
 ## Install
-
-CLI:
-
-`go install github.com/micahco/musli/cmd/musli`
+```
+go install github.com/micahco/musli/cmd/musli
+```
 
 ## Options
 
-<code><strong>-c, --config</strong> path</code>
-
-Use config file at `path`. Must be a valid `toml` configuration file (see: [Configuration](#configuration)).
-
-<code><strong>-q, --query</strong> query</code>
-
-Search library for album name or album artist that contains `query`.
-
-<code><strong>-r, --random</strong></code>
-
-List random albums from your music library. Convenient for when you don't know what to listen to.
-
-<code><strong>-s, --scan</strong></code>
-
-Scans your music directory for compatible music files. This may take a while the first time, but subsequent scans should be faster (for when you add new files to your music directory).
-
-<code><strong>-t, --tidy</strong></code>
-
-Scrubs library for any files that no longer exist. Run this after you delete files from your music directory.
-
-<code><strong>-y, --year</strong> year(-end)</code>
-
-List albums from `year`. Or, list albums from range [`year`, `end`] by using `musli -y 1968-1971`
+Run `musli --help` for a list of options and how to use them.
 
 ## Configuration
 
@@ -70,13 +47,13 @@ Customize the album list. The available variables are `%artist%` for album artis
 
 #### HiglightSGR
 
-Default: `[ 1 ]`
+Default: `[ 7 ]`
 
 Select Graphic Rendition (SGR) parameters for the highlighted albun. Must be a valid integer array. See [SGR parameters (Wikipedia)](https://en.wikipedia.org/wiki/ANSI_escape_code#SGR_(Select_Graphic_Rendition)_parameters) for valid values.
 
 Examples:
 * Bold, magenta foreground: `[ 1, 35 ]`
-* Black foreground, white background: `[ 30, 47 ]`
+* Bright red background `[ 101 ]`
 
 #### ShowStdout / ShowStderr:
 

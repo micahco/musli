@@ -1,7 +1,7 @@
 MusicDir = "/nfs/share/music"
 ExecCmd = "mpv"
 ListTemplate = "%artist% - %album%"
-HiglightSGR = [ 30, 47 ]
+HiglightSGR = [ 101 ]
 PageLength = 10
 ShowStdout = false
 ShowStderr = false

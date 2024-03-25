@@ -97,7 +97,7 @@ func ReadConfig(path string) (*Config, error) {
 		MusicDir:     filepath.Join(home, "Music"),
 		ExecCmd:      "mpv",
 		ListTemplate: "%artist% - %album%",
-		HiglightSGR:  []int{1},
+		HiglightSGR:  []int{7},
 		PageLength:   10,
 		ShowStdout:   false,
 		ShowStderr:   false,
@@ -300,7 +300,7 @@ func FetchRandomAlbums(db *sql.DB) ([]Album, error) {
 	return albums, nil
 }
 
-func FindAlbumsByNameOrAlbumArtist(query string, db *sql.DB) ([]Album, error) {
+func FindAlbumsByNameOrArtist(query string, db *sql.DB) ([]Album, error) {
 	a := "%" + query + "%"
 	rows, err := db.Query(`SELECT * FROM albums WHERE
 						name LIKE ? OR album_artist LIKE ?
@@ -317,47 +317,49 @@ func FindAlbumsByNameOrAlbumArtist(query string, db *sql.DB) ([]Album, error) {
 	return albums, nil
 }
 
-func validateYearQuery(query string) (int, int, error) {
-	var y, z int
-	invalid := fmt.Errorf("musli: invalid year query: %s", query)
+func validateYearQuery(query []string) (int, int, error) {
+	var a, b int
 
-	if len(query) != 4 && len(query) != 9 {
-		return y, z, invalid
+	if len(query) < 1 || len(query) > 2 {
+		return a, b, errors.New("invalid year query")
 	}
 
-	a := strings.Split(query, "-")
-	y, err := strconv.Atoi(a[0])
+	a, err := strconv.Atoi(query[0])
 	if err != nil {
-		return y, z, invalid
+		return a, b, fmt.Errorf("invalid year query: %s", query[0])
 	}
 
-	if len(a) > 1 {
-		z, err = strconv.Atoi(a[1])
+	if len(query) == 2 {
+		b, err = strconv.Atoi(query[1])
 		if err != nil {
-			return y, z, invalid
+			return a, b, fmt.Errorf("invalid year query: %s", query[1])
 		}
 	}
 
-	return y, z, nil
+	if b < a {
+		return b, a, nil
+	}
+
+	return a, b, nil
 }
 
-func FindAlbumsByYear(query string, db *sql.DB) ([]Album, error) {
+func FindAlbumsByYear(query []string, db *sql.DB) ([]Album, error) {
 	var rows *sql.Rows
 	var err error
 
-	y, z, err := validateYearQuery(query)
+	a, b, err := validateYearQuery(query)
 	if err != nil {
 		return nil, err
 	}
 
-	if z > 0 {
+	if b > 0 {
 		rows, err = db.Query(`SELECT * FROM albums WHERE
 							year BETWEEN ? AND ?
-							ORDER BY year ASC, album_artist ASC, name ASC;`, y, z)
+							ORDER BY year ASC, album_artist ASC, name ASC;`, a, b)
 	} else {
 		rows, err = db.Query(`SELECT * FROM albums WHERE
 							year = ?
-							ORDER BY album_artist ASC, name ASC;`, y)
+							ORDER BY album_artist ASC, name ASC;`, a)
 	}
 
 	if err != nil {
