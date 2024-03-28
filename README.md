@@ -4,6 +4,8 @@ A music library interface. Unlike most consumer music programs, musli doesn't in
 
 What musli *does* do is provide a fast and efficient way to browse and search your local music libary.
 
+![demo](./demo.webm)
+
 ## Install
 ```
 go install github.com/micahco/musli/cmd/musli

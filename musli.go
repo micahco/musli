@@ -352,14 +352,16 @@ func FindAlbumsByYear(query []string, db *sql.DB) ([]Album, error) {
 		return nil, err
 	}
 
-	if b > 0 {
+	fmt.Println(a, b)
+
+	if a > 0 {
 		rows, err = db.Query(`SELECT * FROM albums WHERE
 							year BETWEEN ? AND ?
 							ORDER BY year ASC, album_artist ASC, name ASC;`, a, b)
 	} else {
 		rows, err = db.Query(`SELECT * FROM albums WHERE
 							year = ?
-							ORDER BY album_artist ASC, name ASC;`, a)
+							ORDER BY album_artist ASC, name ASC;`, b)
 	}
 
 	if err != nil {
