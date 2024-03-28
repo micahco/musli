@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/eiannone/keyboard"
 	"github.com/micahco/musli"
@@ -20,7 +21,7 @@ func main() {
 
 	err := root(os.Args[1:])
 	if err != nil {
-		printMsg("error", err.Error())
+		printMsg(err.Error())
 		exitCode = 1
 	}
 }
@@ -92,34 +93,12 @@ func loadDB() (*sql.DB, error) {
 	return db, nil
 }
 
-func printMsg(s ...string) {
-	msg := os.Args[0]
-	for _, m := range s {
-		msg += ": " + m
-	}
-	fmt.Println(msg)
-}
-
-func printNoResults() {
-	printMsg("no results")
-}
-
-func printUsage() {
-	fmt.Printf("Usage of %s:", os.Args[0])
-	fmt.Println(`
--q, --query <query>: find albums by <query>
--r, --random: list random albums
--s, --scan: scan music directory for new files
--t, --tidy: scrub library for entries that no longer exist
--y, --year <year> [year]: find albums from <year> or between <year> [year]`)
-}
-
 func execQuery(args []string, conf *musli.Config, db *sql.DB) error {
 	if len(args) < 1 {
 		return errors.New("no query")
 	}
 
-	albums, err := musli.FindAlbumsByNameOrArtist(args[1], db)
+	albums, err := musli.FindAlbumsByNameOrArtist(args[0], db)
 	if err != nil {
 		return err
 	}
@@ -153,14 +132,17 @@ func execRandom(conf *musli.Config, db *sql.DB) error {
 	return nil
 }
 
+var spinner = []string{"[.  ]", "[.. ]", "[...]", "[ ..]", "[  .]", "[   ]", "[  .]", "[ ..]", "[...]", "[.. ]", "[.  ]", "[   ]"}
+
 func execScan(conf *musli.Config, db *sql.DB) error {
-	fmt.Print("Scanning library...")
-	
+	ch := make(chan struct{})
+	go printSpinner(ch, 200, " Scanning directory", spinner)
 	paths, err := musli.WalkLibrary(conf)
 	if err != nil {
 		return err
 	}
 	total := len(paths)
+	close(ch)
 
 	err = musli.AddPathsToLibrary(paths, db, func(i int) {
 		clearLine(i, "/", total)
@@ -174,13 +156,12 @@ func execScan(conf *musli.Config, db *sql.DB) error {
 }
 
 func execTidy(db *sql.DB) error {
-	fmt.Println("Cleaning library...")
-
+	ch := make(chan struct{})
+	go printSpinner(ch, 200, " Cleaning library", spinner)
 	paths, err := musli.FetchTrackPaths(db)
 	if err != nil {
 		return err
 	}
-
 	err = musli.RemoveNotExistPaths(paths, db)
 	if err != nil {
 		return err
@@ -190,6 +171,8 @@ func execTidy(db *sql.DB) error {
 	if err != nil {
 		return err
 	}
+	close(ch)
+	fmt.Println()
 
 	return nil
 }
@@ -243,6 +226,42 @@ func sprintSGR(text string, sgr ...int) string {
 	return fmt.Sprintf("%s[%sm%s%s[1;0m", escape, strings.Join(p, ";"), text, escape)
 }
 
+func printMsg(s ...string) {
+	msg := os.Args[0]
+	for _, m := range s {
+		msg += ": " + m
+	}
+	fmt.Println(msg)
+}
+
+func printNoResults() {
+	printMsg("no results")
+}
+
+func printUsage() {
+	fmt.Printf("Usage of %s:", os.Args[0])
+	fmt.Println(`
+-q, --query <query>: find albums by <query>
+-r, --random: list random albums
+-s, --scan: scan music directory for new files
+-t, --tidy: scrub library for entries that no longer exist
+-y, --year <year> [year]: find albums from <year> or between <year> [year]`)
+}
+
+func printSpinner(ch chan struct{}, delay int64, caption string, frames []string) {
+	for {
+		for _, f := range frames {
+			select {
+			case <-ch:
+				return
+			default:
+				clearLine(f, caption)
+				time.Sleep(time.Duration(delay) * time.Millisecond)
+			}
+		}
+	}
+}
+
 func listAlbums(albums []musli.Album, conf *musli.Config, db *sql.DB) error {
 	err := keyboard.Open()
 	if err != nil {
@@ -286,32 +305,24 @@ func listAlbums(albums []musli.Album, conf *musli.Config, db *sql.DB) error {
 		if err != nil {
 			return err
 		}
-		if key == keyboard.KeySpace || key == keyboard.KeyEnter {
-			err := musli.PlayAlbum(pageAlbums[sel].ID, conf, db)
+
+		switch {
+		case key == keyboard.KeySpace || key == keyboard.KeyEnter:
+			err = musli.PlayAlbum(pageAlbums[sel].ID, conf, db)
 			if err != nil {
 				return err
 			}
 			return nil
-		}
-		if (char == 'j' || key == keyboard.KeyArrowDown) && sel < pageLength-1 && start+sel < len(albums)-1 {
-			sel += 1
-			continue
-		}
-		if (char == 'k' || key == keyboard.KeyArrowUp) && sel > 0 {
-			sel -= 1
-			continue
-		}
-		if (char == 'h' || key == keyboard.KeyArrowLeft) && start-pageLength >= 0 {
+		case (char == 'j' || key == keyboard.KeyArrowDown) && sel < pageLength-1 && start+sel < len(albums)-1:
+			sel++
+		case (char == 'k' || key == keyboard.KeyArrowUp) && sel > 0:
+			sel--
+		case (char == 'h' || key == keyboard.KeyArrowLeft) && start-pageLength >= 0:
 			start -= pageLength
-			continue
-		}
-		if (char == 'l' || key == keyboard.KeyArrowRight) && start+pageLength <= max {
+		case (char == 'l' || key == keyboard.KeyArrowRight) && start+pageLength <= max:
 			start += pageLength
-			continue
-		}
-		if char == 'q' || key == keyboard.KeyCtrlC || key == keyboard.KeyCtrlD {
-			break
+		case char == 'q' || key == keyboard.KeyCtrlC || key == keyboard.KeyCtrlD || key == keyboard.KeyEsc:
+			return nil
 		}
 	}
-	return nil
 }
