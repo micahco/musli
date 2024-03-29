@@ -7,10 +7,9 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
-	"github.com/eiannone/keyboard"
 	"github.com/micahco/musli"
+	"github.com/micahco/musli/cmd/musli/term"
 )
 
 func main() {
@@ -132,47 +131,45 @@ func execRandom(conf *musli.Config, db *sql.DB) error {
 	return nil
 }
 
-var spinner = []string{"[.  ]", "[.. ]", "[...]", "[ ..]", "[  .]", "[   ]", "[  .]", "[ ..]", "[...]", "[.. ]", "[.  ]", "[   ]"}
-
 func execScan(conf *musli.Config, db *sql.DB) error {
-	ch := make(chan struct{})
-	go printSpinner(ch, 200, " Scanning directory", spinner)
-	paths, err := musli.WalkLibrary(conf)
-	if err != nil {
-		return err
-	}
-	total := len(paths)
-	close(ch)
-
-	err = musli.AddPathsToLibrary(paths, db, func(i int) {
-		clearLine(i, "/", total)
+	paths, err := musli.WalkLibrary(conf, func(d string) {
+		term.ClearLine(d)
 	})
 	if err != nil {
 		return err
 	}
 
-	clearLine("Scanned ", total, " files\n")
+	err = musli.AddPathsToLibrary(paths, db, func(n int) {
+		term.ClearLine(n, "/", len(paths))
+	})
+	if err != nil {
+		return err
+	}
+
+	term.ClearLine("Scanned ", len(paths), " files\n")
 	return nil
 }
 
 func execTidy(db *sql.DB) error {
-	ch := make(chan struct{})
-	go printSpinner(ch, 200, " Cleaning library", spinner)
+	fmt.Print("Scrubbing library")
 	paths, err := musli.FetchTrackPaths(db)
 	if err != nil {
 		return err
 	}
-	err = musli.RemoveNotExistPaths(paths, db)
+
+	err = musli.RemoveNotExistPaths(paths, db, func(n int) {
+		term.ClearLine(n, "/", len(paths))
+	})
 	if err != nil {
 		return err
 	}
 
+	term.ClearLine("Cleaning up...")
 	err = musli.RemoveEmptyAlbums(db)
 	if err != nil {
 		return err
 	}
-	close(ch)
-	fmt.Println()
+	term.ClearLine("done\n")
 
 	return nil
 }
@@ -200,31 +197,6 @@ func execYear(args []string, conf *musli.Config, db *sql.DB) error {
 	return nil
 }
 
-const escape = "\033"
-
-func hideCursor() {
-	fmt.Printf("%s[?25l", escape)
-}
-
-func showCursor() {
-	fmt.Printf("%s[?25h", escape)
-}
-
-func clearScreen() {
-	fmt.Printf("%s[H%s[2J", escape, escape)
-}
-
-func clearLine(a ...any) {
-	fmt.Printf("%s[2K\r%s", escape, fmt.Sprint(a...))
-}
-
-func sprintSGR(text string, sgr ...int) string {
-	var p []string
-	for _, i := range sgr {
-		p = append(p, strconv.Itoa(i))
-	}
-	return fmt.Sprintf("%s[%sm%s%s[1;0m", escape, strings.Join(p, ";"), text, escape)
-}
 
 func printMsg(s ...string) {
 	msg := os.Args[0]
@@ -248,80 +220,67 @@ func printUsage() {
 -y, --year <year> [year]: find albums from <year> or between <year> [year]`)
 }
 
-func printSpinner(ch chan struct{}, delay int64, caption string, frames []string) {
-	for {
-		for _, f := range frames {
-			select {
-			case <-ch:
-				return
-			default:
-				clearLine(f, caption)
-				time.Sleep(time.Duration(delay) * time.Millisecond)
-			}
-		}
+func printAlbum(a musli.Album, t string, highlight bool, sgr []int) {
+	t = strings.Replace(t, "%album%", a.Name, -1)
+	t = strings.Replace(t, "%artist%", a.AlbumArtist, -1)
+	t = strings.Replace(t, "%year%", strconv.Itoa(a.Year), -1)
+	if highlight {
+		t = term.SprintSGR(t, sgr...)
 	}
+	fmt.Println(t)
+}
+
+func validateListIndex(i, p, l, max int) int {
+	end := p + l - 1
+	if i < p {
+		return p
+	} else if i > end {
+		return end
+	} else if i > max {
+		return max
+	}
+	return i
 }
 
 func listAlbums(albums []musli.Album, conf *musli.Config, db *sql.DB) error {
-	err := keyboard.Open()
+	err := term.Open()
 	if err != nil {
 		return err
 	}
+	defer term.Close()
 
-	hideCursor()
-	defer func() {
-		_ = keyboard.Close()
-		clearScreen()
-		showCursor()
-	}()
-
-	pageLength := conf.PageLength
-	start := 0
-	sel := 0
-	max := len(albums)
+	l := conf.PageLength
+	max := len(albums) - 1
+	var p, i int // page start, index
 	for {
-		clearScreen()
-		if start < 0 {
-			start = 0
+		term.ClearScreen()
+		i = validateListIndex(i, p, l, max)
+		for j := p; j < p + l && j <= max; j++ {
+			printAlbum(albums[j], conf.ListTemplate, j == i, conf.HiglightSGR)
 		}
-		if sel < 0 || start+sel >= max {
-			sel = 0
-		}
-		var pageAlbums []musli.Album
-		for i := 0; i < pageLength && start+i < len(albums); i++ {
-			pos := start + i
-			a := albums[pos]
-			pageAlbums = append(pageAlbums, a)
-			l := conf.ListTemplate
-			l = strings.Replace(l, "%album%", a.Name, -1)
-			l = strings.Replace(l, "%artist%", a.AlbumArtist, -1)
-			l = strings.Replace(l, "%year%", strconv.Itoa(a.Year), -1)
-			if sel == i {
-				l = sprintSGR(l, conf.HiglightSGR...)
-			}
-			fmt.Println(l)
-		}
-		char, key, err := keyboard.GetKey()
+		
+		in, err := term.GetInput()
 		if err != nil {
 			return err
 		}
-
 		switch {
-		case key == keyboard.KeySpace || key == keyboard.KeyEnter:
-			err = musli.PlayAlbum(pageAlbums[sel].ID, conf, db)
+		case in["enter"]:
+			err = musli.PlayAlbum(albums[i].ID, conf, db)
 			if err != nil {
 				return err
 			}
 			return nil
-		case (char == 'j' || key == keyboard.KeyArrowDown) && sel < pageLength-1 && start+sel < len(albums)-1:
-			sel++
-		case (char == 'k' || key == keyboard.KeyArrowUp) && sel > 0:
-			sel--
-		case (char == 'h' || key == keyboard.KeyArrowLeft) && start-pageLength >= 0:
-			start -= pageLength
-		case (char == 'l' || key == keyboard.KeyArrowRight) && start+pageLength <= max:
-			start += pageLength
-		case char == 'q' || key == keyboard.KeyCtrlC || key == keyboard.KeyCtrlD || key == keyboard.KeyEsc:
+		case in["down"]:
+			i++
+		case in["up"]:
+			i--
+		case in["left"] && p - l >= 0:
+			i -= l
+			p -= l
+		case in["right"] && p + l <= max:
+			i += l
+			p += l
+		case in["quit"]:
 			return nil
 		}
 	}

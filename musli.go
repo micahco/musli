@@ -166,14 +166,15 @@ func CloseDB(db *sql.DB) error {
 	return nil
 }
 
-func WalkLibrary(conf *Config) ([]string, error) {
+func WalkLibrary(conf *Config, fn func(d string)) ([]string, error) {
 	var paths []string
-	err := filepath.Walk(conf.MusicDir, func(path string, info fs.FileInfo, err error) error {
+	err := filepath.WalkDir(conf.MusicDir, func(path string, di fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-
-		if !info.IsDir() && isValidFileType(path) {
+		if di.IsDir() {
+			fn(di.Name())
+		} else if isValidFileType(path) {
 			paths = append(paths, path)
 		}
 
@@ -213,9 +214,9 @@ func readMetadata(path string) (*Album, *Track, error) {
 	return &a, &t, nil
 }
 
-func AddPathsToLibrary(paths []string, db *sql.DB, counter func(count int)) error {
+func AddPathsToLibrary(paths []string, db *sql.DB, count func(n int)) error {
 	for i, path := range paths {
-		counter(i)
+		count(i)
 
 		trackID, err := findTrackID(path, db)
 		if err != nil {
@@ -250,11 +251,12 @@ func AddPathsToLibrary(paths []string, db *sql.DB, counter func(count int)) erro
 	return nil
 }
 
-func RemoveNotExistPaths(paths []string, db *sql.DB) error {
-	for _, p := range paths {
-		_, err := os.Stat(p)
+func RemoveNotExistPaths(paths []string, db *sql.DB, count func(n int)) error {
+	for i, path := range paths {
+		count(i)
+		_, err := os.Stat(path)
 		if errors.Is(err, os.ErrNotExist) {
-			_, err := db.Exec(`DELETE FROM tracks WHERE path = ?`, p)
+			_, err := db.Exec(`DELETE FROM tracks WHERE path = ?`, path)
 			if err != nil {
 				return err
 			}
