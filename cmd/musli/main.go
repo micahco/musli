@@ -43,20 +43,20 @@ func root(args []string) error {
 	defer musli.CloseDB(db)
 
 	switch args[0] {
-		case "-h", "--help":
-			printUsage()
-		case "-q", "--query":
-			err = execQuery(args[1:], conf, db)
-		case "-r", "--random":
-			err = execRandom(conf, db)
-		case "-s", "--scan":
-			err = execScan(conf, db)
-		case "-t", "--tidy":
-			err = execTidy(db)
-		case "-y", "--year":
-			err = execYear(args[1:], conf, db)
-		default:
-			return fmt.Errorf("invalid option: '%s'", args[0])
+	case "-h", "--help":
+		printUsage()
+	case "-q", "--query":
+		err = execQuery(args[1:], conf, db)
+	case "-r", "--random":
+		err = execRandom(conf, db)
+	case "-s", "--scan":
+		err = execScan(conf, db)
+	case "-t", "--tidy":
+		err = execTidy(db)
+	case "-y", "--year":
+		err = execYear(args[1:], conf, db)
+	default:
+		return fmt.Errorf("invalid option: '%s'", args[0])
 	}
 	if err != nil {
 		return err
@@ -117,7 +117,7 @@ func execRandom(conf *musli.Config, db *sql.DB) error {
 	if err != nil {
 		return err
 	}
-	
+
 	if len(albums) == 0 {
 		printNoResults()
 		return nil
@@ -183,7 +183,7 @@ func execYear(args []string, conf *musli.Config, db *sql.DB) error {
 	if err != nil {
 		return err
 	}
-	
+
 	if len(albums) == 0 {
 		printNoResults()
 		return nil
@@ -196,7 +196,6 @@ func execYear(args []string, conf *musli.Config, db *sql.DB) error {
 
 	return nil
 }
-
 
 func printMsg(s ...string) {
 	msg := os.Args[0]
@@ -255,10 +254,10 @@ func listAlbums(albums []musli.Album, conf *musli.Config, db *sql.DB) error {
 	for {
 		term.ClearScreen()
 		i = validateListIndex(i, p, l, max)
-		for j := p; j < p + l && j <= max; j++ {
+		for j := p; j < p+l && j <= max; j++ {
 			printAlbum(albums[j], conf.ListTemplate, j == i, conf.HiglightSGR)
 		}
-		
+
 		in, err := term.GetInput()
 		if err != nil {
 			return err
@@ -274,10 +273,10 @@ func listAlbums(albums []musli.Album, conf *musli.Config, db *sql.DB) error {
 			i++
 		case in["up"]:
 			i--
-		case in["left"] && p - l >= 0:
+		case in["left"] && p-l >= 0:
 			i -= l
 			p -= l
-		case in["right"] && p + l <= max:
+		case in["right"] && p+l <= max:
 			i += l
 			p += l
 		case in["quit"]:

@@ -29,18 +29,18 @@ func Close() {
 
 func GetSize() (int, int, error) {
 	if !term.IsTerminal(0) {
-        return 0, 0, nil
-    }
-    w, h, err := term.GetSize(int(os.Stdin.Fd()))
-    if err != nil {
-        return 0, 0, err
-    }
+		return 0, 0, nil
+	}
+	w, h, err := term.GetSize(int(os.Stdin.Fd()))
+	if err != nil {
+		return 0, 0, err
+	}
 	return w, h, nil
 }
 
 func GetInput() (map[string]bool, error) {
 	m := make(map[string]bool)
-	
+
 	char, key, err := keyboard.GetKey()
 	if err != nil {
 		return m, err
