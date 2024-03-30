@@ -1,5 +1,5 @@
-MusicDir = "/nfs/share/music"
-ExecCmd = "mpv"
+MusicDir = "/home/micah/share/music"
+ExecCmd = "flatpak run io.mpv.Mpv"
 ListTemplate = "%artist% - %album%"
 HiglightSGR = [ 35 ]
 PageLength = 10

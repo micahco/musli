@@ -7,9 +7,7 @@ require (
 	github.com/dhowden/tag v0.0.0-20240122214204-713ab0e94639
 	github.com/eiannone/keyboard v0.0.0-20220611211555-0d226195f203
 	github.com/mattn/go-sqlite3 v1.14.22
+	golang.org/x/term v0.18.0
 )
 
-require (
-	golang.org/x/sys v0.18.0 // indirect
-	golang.org/x/term v0.18.0 // indirect
-)
+require golang.org/x/sys v0.18.0 // indirect

@@ -75,3 +75,5 @@ Tested:
 * vlc
 * mplayer
 * parole
+
+Flatpak versions should work as well (i.e. `flatpak run io.mpv.Mpv`).
