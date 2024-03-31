@@ -168,15 +168,13 @@ func CloseDB(db *sql.DB) error {
 	return nil
 }
 
-func WalkLibrary(conf *Config, fn func(d string)) ([]string, error) {
+func GetMusicDirPaths(conf *Config) ([]string, error) {
 	var paths []string
 	err := filepath.WalkDir(conf.MusicDir, func(path string, di fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if di.IsDir() {
-			fn(di.Name())
-		} else if isValidFileType(path) {
+		if isValidFileType(path) {
 			paths = append(paths, path)
 		}
 

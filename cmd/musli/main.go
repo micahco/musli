@@ -132,9 +132,8 @@ func execRandom(conf *musli.Config, db *sql.DB) error {
 }
 
 func execScan(conf *musli.Config, db *sql.DB) error {
-	paths, err := musli.WalkLibrary(conf, func(d string) {
-		term.ClearLine(d)
-	})
+	fmt.Println("Scanning directory")
+	paths, err := musli.GetMusicDirPaths(conf)
 	if err != nil {
 		return err
 	}
