@@ -36,7 +36,6 @@ type Track struct {
 type Config struct {
 	MusicDir     string
 	ExecCmd      string
-	ExecShell    string
 	ListTemplate string
 	HiglightSGR  []int
 	PageLength   int
@@ -97,7 +96,6 @@ func ReadConfig(path string) (*Config, error) {
 	conf := Config{ // Default values
 		MusicDir:     filepath.Join(home, "Music"),
 		ExecCmd:      "mpv",
-		ExecShell:    "",
 		ListTemplate: "%artist% - %album%",
 		HiglightSGR:  []int{7},
 		PageLength:   10,
@@ -171,6 +169,7 @@ func CloseDB(db *sql.DB) error {
 func GetMusicDirPaths(conf *Config) ([]string, error) {
 	var paths []string
 	err := filepath.WalkDir(conf.MusicDir, func(path string, di fs.DirEntry, err error) error {
+		fmt.Println("WALKING:", path)
 		if err != nil {
 			return err
 		}

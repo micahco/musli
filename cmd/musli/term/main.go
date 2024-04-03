@@ -2,12 +2,11 @@ package term
 
 import (
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 
 	"github.com/eiannone/keyboard"
-	"golang.org/x/term"
+	"github.com/inancgumus/screen"
 )
 
 const escape = "\033"
@@ -27,15 +26,9 @@ func Close() {
 	showCursor()
 }
 
-func GetSize() (int, int, error) {
-	if !term.IsTerminal(0) {
-		return 0, 0, nil
-	}
-	w, h, err := term.GetSize(int(os.Stdin.Fd()))
-	if err != nil {
-		return 0, 0, err
-	}
-	return w, h, nil
+func GetSize() (int, int) {
+	w, h := screen.Size()
+	return w, h
 }
 
 func GetInput() (map[string]bool, error) {
@@ -65,11 +58,12 @@ func GetInput() (map[string]bool, error) {
 }
 
 func ClearLine(a ...any) {
-	fmt.Printf("%s[2K\r%s", escape, fmt.Sprint(a...))
+	fmt.Printf("%s[1A%s[K", escape, escape)
+	fmt.Println(a...)
 }
 
 func ClearScreen() {
-	fmt.Printf("%s[H%s[2J", escape, escape)
+	screen.Clear()
 }
 
 func SprintSGR(text string, sgr ...int) string {
