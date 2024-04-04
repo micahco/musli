@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -65,12 +66,7 @@ func root(args []string) error {
 }
 
 func loadConfig() (*musli.Config, error) {
-	path, err := musli.GetDefaultConfigPath()
-	if err != nil {
-		return nil, err
-	}
-
-	conf, err := musli.ReadConfig(path)
+	conf, err := musli.ReadConfig(musli.GetConfigPath())
 	if err != nil {
 		return nil, err
 	}
@@ -79,11 +75,11 @@ func loadConfig() (*musli.Config, error) {
 }
 
 func loadDB() (*sql.DB, error) {
-	path, err := musli.GetDBPath()
+	path := musli.GetDBPath()
+	err := os.MkdirAll(filepath.Dir(path), os.ModePerm)
 	if err != nil {
 		return nil, err
 	}
-
 	db, err := musli.OpenDB(path)
 	if err != nil {
 		return nil, err
@@ -132,7 +128,6 @@ func execRandom(conf *musli.Config, db *sql.DB) error {
 }
 
 func execScan(conf *musli.Config, db *sql.DB) error {
-	fmt.Println(conf.MusicDir)
 	fmt.Println("Scanning directory")
 	paths, err := musli.GetMusicDirPaths(conf)
 	if err != nil {
@@ -146,7 +141,7 @@ func execScan(conf *musli.Config, db *sql.DB) error {
 		return err
 	}
 
-	term.ClearLine("Scanned ", len(paths), " files\n")
+	term.ClearLine("Scanned", len(paths), "files")
 	return nil
 }
 
@@ -169,7 +164,7 @@ func execTidy(db *sql.DB) error {
 	if err != nil {
 		return err
 	}
-	term.ClearLine("done\n")
+	term.ClearLine("done")
 
 	return nil
 }
@@ -217,6 +212,7 @@ func printUsage() {
 -s, --scan: scan music directory for new files
 -t, --tidy: scrub library for entries that no longer exist
 -y, --year <year> [year]: find albums from <year> or between <year> [year]`)
+	fmt.Println("\nConfig:", musli.GetConfigPath())
 }
 
 func printAlbum(a musli.Album, t string, highlight bool, sgr []int) {
@@ -242,11 +238,11 @@ func validateListIndex(i, p, l, max int) int {
 }
 
 func listAlbums(albums []musli.Album, conf *musli.Config, db *sql.DB) error {
-	err := term.Open()
+	err := term.OpenCLI()
 	if err != nil {
 		return err
 	}
-	defer term.Close()
+	defer term.CloseCLI()
 
 	l := conf.PageLength
 	max := len(albums) - 1

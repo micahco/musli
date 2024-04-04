@@ -1,17 +1,21 @@
 package term
 
+// #include "Windows.h"
 import (
 	"fmt"
+	"os"
+	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 
 	"github.com/eiannone/keyboard"
-	"github.com/inancgumus/screen"
+	"golang.org/x/term"
 )
 
-const escape = "\033"
+const ESCAPE = "\033"
 
-func Open() error {
+func OpenCLI() error {
 	err := keyboard.Open()
 	if err != nil {
 		return err
@@ -20,15 +24,38 @@ func Open() error {
 	return nil
 }
 
-func Close() {
+func CloseCLI() {
 	_ = keyboard.Close()
 	ClearScreen()
 	showCursor()
 }
 
-func GetSize() (int, int) {
-	w, h := screen.Size()
-	return w, h
+func ClearScreen() {
+	if runtime.GOOS == "windows" {
+		cmd := exec.Command("cmd", "/c", "cls")
+		cmd.Stdout = os.Stdout
+		cmd.Run()
+	} else {
+		fmt.Printf("%s[H%s[2J", ESCAPE, ESCAPE)
+	}
+}
+
+func ClearLine(a ...any) {
+	if runtime.GOOS == "unix" {
+		fmt.Printf("%s[1A%s[K", ESCAPE, ESCAPE)
+		fmt.Println(a...)
+	}
+}
+
+func GetSize() (int, int, error) {
+	if !term.IsTerminal(0) {
+		return 0, 0, nil
+	}
+	w, h, err := term.GetSize(int(os.Stdin.Fd()))
+	if err != nil {
+		return 0, 0, err
+	}
+	return w, h, nil
 }
 
 func GetInput() (map[string]bool, error) {
@@ -57,27 +84,18 @@ func GetInput() (map[string]bool, error) {
 	return m, nil
 }
 
-func ClearLine(a ...any) {
-	fmt.Printf("%s[1A%s[K", escape, escape)
-	fmt.Println(a...)
-}
-
-func ClearScreen() {
-	screen.Clear()
-}
-
 func SprintSGR(text string, sgr ...int) string {
 	var p []string
 	for _, i := range sgr {
 		p = append(p, strconv.Itoa(i))
 	}
-	return fmt.Sprintf("%s[%sm%s%s[1;0m", escape, strings.Join(p, ";"), text, escape)
+	return fmt.Sprintf("%s[%sm%s%s[1;0m", ESCAPE, strings.Join(p, ";"), text, ESCAPE)
 }
 
 func hideCursor() {
-	fmt.Printf("%s[?25l", escape)
+	fmt.Printf("%s[?25l", ESCAPE)
 }
 
 func showCursor() {
-	fmt.Printf("%s[?25h", escape)
+	fmt.Printf("%s[?25h", ESCAPE)
 }

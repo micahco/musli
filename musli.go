@@ -10,13 +10,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 
 	"github.com/BurntSushi/toml"
 	"github.com/dhowden/tag"
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 type Album struct {
@@ -43,48 +42,22 @@ type Config struct {
 	ShowStderr   bool
 }
 
-func GetDefaultConfigPath() (string, error) {
+const AppName = "musli"
+
+func GetConfigPath() string {
 	dir, err := os.UserConfigDir()
 	if err != nil {
-		return "", err
+		dir, _ = os.UserHomeDir()
 	}
-	p := filepath.Join(dir, "musli", "config.toml")
-	return p, nil
+	return filepath.Join(dir, AppName, "config.toml")
 }
 
-func GetDBPath() (string, error) {
-	dir, err := GetAppDir()
+func GetDBPath() string {
+	dir, err := os.UserCacheDir()
 	if err != nil {
-		return "", err
+		dir, _ = os.UserHomeDir()
 	}
-	return filepath.Join(dir, "library.db"), nil
-}
-
-func GetAppDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-
-	var dir string
-	name := "musli"
-	if runtime.GOOS == "linux" {
-		xdgUserDir := os.Getenv("XDG_STATE_HOME")
-		if xdgUserDir != "" {
-			dir = filepath.Join(xdgUserDir, name)
-		} else {
-			dir = filepath.Join(home, ".state", name)
-		}
-	} else {
-		dir = filepath.Join(home, "."+name)
-	}
-
-	err = os.MkdirAll(dir, os.ModePerm)
-	if err != nil {
-		return "", err
-	}
-
-	return dir, nil
+	return filepath.Join(dir, AppName, "library.db")
 }
 
 func ReadConfig(path string) (*Config, error) {
@@ -111,7 +84,7 @@ func ReadConfig(path string) (*Config, error) {
 }
 
 func OpenDB(path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite3", path)
+	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +142,6 @@ func CloseDB(db *sql.DB) error {
 func GetMusicDirPaths(conf *Config) ([]string, error) {
 	var paths []string
 	err := filepath.WalkDir(conf.MusicDir, func(path string, di fs.DirEntry, err error) error {
-		fmt.Println("WALKING:", path)
 		if err != nil {
 			return err
 		}
@@ -352,8 +324,6 @@ func FindAlbumsByYear(query []string, db *sql.DB) ([]Album, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	fmt.Println(a, b)
 
 	if a > 0 {
 		rows, err = db.Query(`SELECT * FROM albums WHERE
