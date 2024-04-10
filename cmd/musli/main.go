@@ -143,6 +143,10 @@ func execScan(conf *musli.Config, db *sql.DB) error {
 		}
 	}
 
+	err = musli.FindMissingArtwork(db)
+	if err != nil {
+		return err
+	}
 	term.ClearLine("Scanned", len(paths), "files")
 	return nil
 }

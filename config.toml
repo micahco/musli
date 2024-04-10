@@ -1,4 +1,4 @@
-MusicDir = "/mnt/share/music"
+MusicDir = "/home/micah/share/music"
 ExecCmd = "mpv"
 ListTemplate = "%artist% - %album%"
 HiglightSGR = [ 35 ]
