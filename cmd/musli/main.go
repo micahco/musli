@@ -133,12 +133,14 @@ func execScan(conf *musli.Config, db *sql.DB) error {
 	if err != nil {
 		return err
 	}
+	total := len(paths)
 
-	err = musli.AddPathsToLibrary(paths, db, func(n int) {
-		term.ClearLine(n, "/", len(paths))
-	})
-	if err != nil {
-		return err
+	for i, path := range paths {
+		err = musli.AddPathToLibrary(path, db)
+		term.ClearLine(i, "/", total)
+		if err != nil {
+			return err
+		}
 	}
 
 	term.ClearLine("Scanned", len(paths), "files")
@@ -151,12 +153,14 @@ func execTidy(db *sql.DB) error {
 	if err != nil {
 		return err
 	}
+	total := len(paths)
 
-	err = musli.RemoveNotExistPaths(paths, db, func(n int) {
-		term.ClearLine(n, "/", len(paths))
-	})
-	if err != nil {
-		return err
+	for i, path := range paths {
+		err = musli.RemoveNotExistPath(path, db)
+		term.ClearLine(i, "/", total)
+		if err != nil {
+			return err
+		}
 	}
 
 	term.ClearLine("Cleaning up...")

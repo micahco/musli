@@ -31,17 +31,19 @@ func CloseCLI() {
 }
 
 func ClearScreen() {
-	if runtime.GOOS == "windows" {
+	switch runtime.GOOS {
+	case "windows":
 		cmd := exec.Command("cmd", "/c", "cls")
 		cmd.Stdout = os.Stdout
 		cmd.Run()
-	} else {
+	default:
 		fmt.Printf("%s[H%s[2J", ESCAPE, ESCAPE)
 	}
 }
 
 func ClearLine(a ...any) {
-	if runtime.GOOS == "unix" {
+	switch runtime.GOOS {
+	default:
 		fmt.Printf("%s[1A%s[K", ESCAPE, ESCAPE)
 		fmt.Println(a...)
 	}
