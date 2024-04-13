@@ -20,8 +20,8 @@ import (
 
 type Album struct {
 	ID          int64
-	ArtworkPath string
 	AlbumArtist string
+	ArtworkPath *string
 	Name        string
 	Year        int
 }
@@ -41,37 +41,6 @@ type Config struct {
 	PageLength   int
 	ShowStdout   bool
 	ShowStderr   bool
-}
-
-const APP_NAME = "musli"
-
-func getAppPath(filename string) string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, "."+APP_NAME, filename)
-}
-
-func GetConfigPath() string {
-	filename := "config.toml"
-	/*
-		dir, err := os.UserConfigDir()
-		if err != nil {
-			return getAppPath(filename)
-		}
-		return filepath.Join(dir, APP_NAME, filename)
-	*/
-	return getAppPath(filename)
-}
-
-func GetDBPath() string {
-	filename := "library.db"
-	/*
-		dir, err := os.UserCacheDir()
-		if err != nil {
-			return getAppPath(filename)
-		}
-		return filepath.Join(dir, APP_NAME, filename)
-	*/
-	return getAppPath(filename)
 }
 
 func ReadConfig(path string) (*Config, error) {
@@ -112,8 +81,8 @@ func OpenDB(path string) (*sql.DB, error) {
 
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS albums(
 						id integer PRIMARY KEY,
-						artwork_path TEXT,
 						album_artist TEXT,
+						artwork_path TEXT,
 						name TEXT,
 						year INTEGER
 					);`)
@@ -597,7 +566,7 @@ func parseRowsToAlbums(rows *sql.Rows) ([]Album, error) {
 	var albums []Album
 	for rows.Next() {
 		var a Album
-		err := rows.Scan(&a.ID, &a.AlbumArtist, &a.Name, &a.Year)
+		err := rows.Scan(&a.ID, &a.AlbumArtist, &a.ArtworkPath, &a.Name, &a.Year)
 		if err != nil {
 			return nil, err
 		}

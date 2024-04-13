@@ -14,7 +14,7 @@ import (
 )
 
 func main() {
-	var exitCode int
+	exitCode := 0
 	defer func() {
 		os.Exit(exitCode)
 	}()
@@ -65,8 +65,18 @@ func root(args []string) error {
 	return nil
 }
 
+func getAppPath(filename string) (string, error) {
+	home, err := os.UserHomeDir()
+	return filepath.Join(home, ".musli", filename), err
+}
+
 func loadConfig() (*musli.Config, error) {
-	conf, err := musli.ReadConfig(musli.GetConfigPath())
+	path, err := getAppPath("config.toml")
+	if err != nil {
+		return nil, err
+	}
+
+	conf, err := musli.ReadConfig(path)
 	if err != nil {
 		return nil, err
 	}
@@ -75,11 +85,16 @@ func loadConfig() (*musli.Config, error) {
 }
 
 func loadDB() (*sql.DB, error) {
-	path := musli.GetDBPath()
-	err := os.MkdirAll(filepath.Dir(path), os.ModePerm)
+	path, err := getAppPath("library.db")
 	if err != nil {
 		return nil, err
 	}
+
+	err = os.MkdirAll(filepath.Dir(path), os.ModePerm)
+	if err != nil {
+		return nil, err
+	}
+
 	db, err := musli.OpenDB(path)
 	if err != nil {
 		return nil, err
@@ -147,12 +162,12 @@ func execScan(conf *musli.Config, db *sql.DB) error {
 	if err != nil {
 		return err
 	}
-	term.ClearLine("Scanned", len(paths), "files")
+	term.ClearLine("Scanned", total, "files")
 	return nil
 }
 
 func execTidy(db *sql.DB) error {
-	fmt.Print("Scrubbing library")
+	fmt.Println("Scrubbing library")
 	paths, err := musli.FetchTrackPaths(db)
 	if err != nil {
 		return err
@@ -167,13 +182,12 @@ func execTidy(db *sql.DB) error {
 		}
 	}
 
-	term.ClearLine("Cleaning up...")
+	term.ClearLine("Cleaning up")
 	err = musli.RemoveEmptyAlbums(db)
 	if err != nil {
 		return err
 	}
-	term.ClearLine("done")
-
+	term.ClearLine("Scrubbed", total, "files")
 	return nil
 }
 
@@ -220,7 +234,6 @@ func printUsage() {
 -s, --scan: scan music directory for new files
 -t, --tidy: scrub library for entries that no longer exist
 -y, --year <year> [year]: find albums from <year> or between <year> [year]`)
-	fmt.Println("\nConfig:", musli.GetConfigPath())
 }
 
 func printAlbum(a musli.Album, t string, highlight bool, sgr []int) {
