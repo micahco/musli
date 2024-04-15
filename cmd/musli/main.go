@@ -27,11 +27,6 @@ func main() {
 }
 
 func root(args []string) error {
-	if len(args) < 1 {
-		printUsage()
-		return nil
-	}
-
 	conf, err := loadConfig()
 	if err != nil {
 		return err
@@ -43,19 +38,18 @@ func root(args []string) error {
 	}
 	defer musli.CloseDB(db)
 
+	if len(args) < 1 {
+		execRandom(conf, db)
+		return nil
+	}
+
 	switch args[0] {
 	case "-h", "--help":
 		printUsage()
-	case "-q", "--query":
-		err = execQuery(args[1:], conf, db)
-	case "-r", "--random":
-		err = execRandom(conf, db)
 	case "-s", "--scan":
 		err = execScan(conf, db)
 	case "-t", "--tidy":
 		err = execTidy(db)
-	case "-y", "--year":
-		err = execYear(args[1:], conf, db)
 	default:
 		return fmt.Errorf("invalid option: '%s'", args[0])
 	}
@@ -158,10 +152,6 @@ func execScan(conf *musli.Config, db *sql.DB) error {
 		}
 	}
 
-	err = musli.FindMissingArtwork(db)
-	if err != nil {
-		return err
-	}
 	term.ClearLine("Scanned", total, "files")
 	return nil
 }
@@ -229,11 +219,8 @@ func printNoResults() {
 func printUsage() {
 	fmt.Printf("Usage of %s:", os.Args[0])
 	fmt.Println(`
--q, --query <query>: find albums by <query>
--r, --random: list random albums
 -s, --scan: scan music directory for new files
--t, --tidy: scrub library for entries that no longer exist
--y, --year <year> [year]: find albums from <year> or between <year> [year]`)
+-t, --tidy: scrub library for entries that no longer exist`)
 }
 
 func printAlbum(a musli.Album, t string, highlight bool, sgr []int) {

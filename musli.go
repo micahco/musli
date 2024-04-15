@@ -21,7 +21,6 @@ import (
 type Album struct {
 	ID          int64
 	AlbumArtist string
-	ArtworkPath *string
 	Name        string
 	Year        int
 }
@@ -82,7 +81,6 @@ func OpenDB(path string) (*sql.DB, error) {
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS albums(
 						id integer PRIMARY KEY,
 						album_artist TEXT,
-						artwork_path TEXT,
 						name TEXT,
 						year INTEGER
 					);`)
@@ -494,59 +492,6 @@ func FetchTrackPaths(db *sql.DB) ([]string, error) {
 	return paths, nil
 }
 
-func findAlbumArtworkPath(dir string) (string, error) {
-	path := filepath.Join(dir, "cover.jpg")
-	_, err := os.Stat(path)
-	if err == nil {
-		return path, nil
-	} else if os.IsNotExist(err) {
-		return "", nil
-	}
-	return "", err
-}
-
-func FindMissingArtwork(db *sql.DB) error {
-	albumIDs, err := fetchAlbumIDsWithoutArtwork(db)
-	if err != nil {
-		return err
-	}
-
-	for _, id := range albumIDs {
-		paths, err := fetchTrackPaths(id, db)
-		if err != nil {
-			return err
-		}
-
-		path, err := findAlbumArtworkPath(filepath.Dir(paths[0]))
-		if err != nil {
-			return err
-		}
-
-		_, err = db.Exec(`UPDATE albums
-						SET artwork_path = ?
-						WHERE id = ?`, path, id)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func fetchAlbumIDsWithoutArtwork(db *sql.DB) ([]int64, error) {
-	query := `SELECT id from albums WHERE artwork_path IS NULL;`
-	rows, err := db.Query(query)
-	if err != nil {
-		return nil, err
-	}
-
-	paths, err := parseRowsToAlbumIDs(rows)
-	if err != nil {
-		return nil, err
-	}
-
-	return paths, nil
-}
-
 func fetchAlbumIDs(db *sql.DB) ([]int64, error) {
 	query := `SELECT id FROM albums`
 	rows, err := db.Query(query)
@@ -566,7 +511,7 @@ func parseRowsToAlbums(rows *sql.Rows) ([]Album, error) {
 	var albums []Album
 	for rows.Next() {
 		var a Album
-		err := rows.Scan(&a.ID, &a.AlbumArtist, &a.ArtworkPath, &a.Name, &a.Year)
+		err := rows.Scan(&a.ID, &a.AlbumArtist, &a.Name, &a.Year)
 		if err != nil {
 			return nil, err
 		}
