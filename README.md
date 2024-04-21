@@ -1,8 +1,8 @@
-# musli
+# musli — music library
 
-A music library interface. Unlike most consumer music programs, musli doesn't include an audio player. Instead, it relies on the media player you already have installed (see: [Compatible media players](#compatible-media-players)). Likewise, the program doesn't include any methods to edit metadata, requiring that your music files already be properly tagged.
+A music library interface with a focus on albums. Unlike most consumer music programs, musli doesn't include an audio player. Instead, it relies on the media player you already have installed (see: [Compatible media players](#compatible-media-players)). Likewise, the program doesn't include any methods to edit metadata, requiring that your music files already be properly tagged.
 
-What musli *does* do is provide a fast and efficient way to browse and search your local music libary.
+Written in Go with a SQLite database.
 
 ## Install
 ```
@@ -15,7 +15,7 @@ Run `musli --help` for a list of options and how to use them.
 
 ## Configuration
 
-The program uses a [TOML](https://toml.io/en/v1.0.0) configuration file. Each key has a default value.
+musli uses a [TOML](https://toml.io/en/v1.0.0) configuration file. Each key has a default value.
 
 The config file is located at: `~/.config/musli/config.toml` on Unix systems. This file will not be created automatically.
 
@@ -39,21 +39,11 @@ The command executed will look something like this:
 
 `mpv /path/to/ablum/track1.mp3 /path/to/ablum/track2.mp3 ...`
 
-#### ListTemplate
+#### CursorColor
 
-Default: `"%artist% - %album%"`
+Default: `"5" // magenta`
 
-Customize the album list. The available variables are `%artist%` for album artist, `%album%` for album name, and `%year%` for the release year.
-
-#### HiglightSGR
-
-Default: `[ 7 ]`
-
-Select Graphic Rendition (SGR) parameters for the highlighted albun. Must be a valid integer array. See [SGR parameters (Wikipedia)](https://en.wikipedia.org/wiki/ANSI_escape_code#SGR_(Select_Graphic_Rendition)_parameters) for valid values.
-
-Examples:
-* Bold, magenta foreground: `[ 1, 35 ]`
-* Bright red background `[ 101 ]`
+Refer to charm's [Lip Gloss](https://github.com/charmbracelet/lipgloss?tab=readme-ov-file#colors) for valid color codes.
 
 #### ShowStdout / ShowStderr:
 

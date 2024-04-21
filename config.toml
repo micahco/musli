@@ -1,7 +1,6 @@
 MusicDir = "/home/micah/share/music"
 ExecCmd = "mpv"
-ListTemplate = "%artist% - %album%"
-HiglightSGR = [ 35 ]
+CursorColor = "202"
 PageLength = 10
 ShowStdout = false
 ShowStderr = false

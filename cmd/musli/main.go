@@ -3,18 +3,33 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 
+	"github.com/BurntSushi/toml"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/micahco/musli"
+	"golang.org/x/term"
 )
 
-const APP_NAME = "musli"
-const ESCAPE = "\033"
+const (
+	APP_NAME     = "musli"
+	ESCAPE       = "\033"
+	CURSOR_COLOR = "5"
+	CELL_WIDTH   = 15
+)
+
+type config struct {
+	MusicDir    string
+	ExecCmd     string
+	CursorColor string
+	PageLength  int
+	ShowStdout  bool
+	ShowStderr  bool
+}
 
 func main() {
 	exitCode := 0
@@ -46,6 +61,10 @@ func root(args []string) error {
 		if err != nil {
 			return err
 		}
+		if m == nil {
+			// no albums in library
+			return nil
+		}
 		p := tea.NewProgram(m)
 		_, err = p.Run()
 		return err
@@ -55,7 +74,12 @@ func root(args []string) error {
 	case "-h", "--help":
 		printUsage()
 	case "-r", "--random":
-		// play random album
+		albums, err := musli.FetchAlbumsByRandom(db)
+		if err != nil {
+			return err
+		}
+		randAlbum := albums[rand.IntN(100)]
+		musli.PlayAlbum(randAlbum.ID, conf.ExecCmd, conf.ShowStdout, conf.ShowStderr, db)
 	case "-s", "--scan":
 		err = execScan(conf, db)
 	case "-t", "--tidy":
@@ -72,6 +96,7 @@ func root(args []string) error {
 func printUsage() {
 	fmt.Printf("Usage of %s:", APP_NAME)
 	fmt.Println(`
+-r, --random: play random album from library
 -s, --scan: scan music directory for new files
 -t, --tidy: scrub library for entries that no longer exist`)
 }
@@ -81,13 +106,35 @@ func getAppPath(filename string) (string, error) {
 	return filepath.Join(home, ".musli", filename), err
 }
 
-func loadConfig() (*musli.Config, error) {
+func readConfig(path string) (*config, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+
+	conf := config{ // Default values
+		MusicDir:    filepath.Join(home, "Music"),
+		ExecCmd:     "mpv",
+		CursorColor: CURSOR_COLOR,
+		PageLength:  10,
+		ShowStdout:  false,
+		ShowStderr:  false,
+	}
+
+	_, err = toml.DecodeFile(path, &conf)
+	if err != nil {
+		return nil, err
+	}
+	return &conf, nil
+}
+
+func loadConfig() (*config, error) {
 	path, err := getAppPath("config.toml")
 	if err != nil {
 		return nil, err
 	}
 
-	conf, err := musli.ReadConfig(path)
+	conf, err := readConfig(path)
 	if err != nil {
 		return nil, err
 	}
@@ -119,9 +166,9 @@ func clearLine(a ...any) {
 	fmt.Println(a...)
 }
 
-func execScan(conf *musli.Config, db *sql.DB) error {
+func execScan(conf *config, db *sql.DB) error {
 	fmt.Println("Scanning directory")
-	paths, err := musli.GetMusicDirPaths(conf)
+	paths, err := musli.GetMusicDirPaths(conf.MusicDir)
 	if err != nil {
 		return err
 	}
@@ -188,7 +235,7 @@ func fetchAlbums(db *sql.DB, sortMethod int, asc bool) ([]musli.Album, error) {
 
 type model struct {
 	albums     []musli.Album
-	conf       *musli.Config
+	conf       *config
 	db         *sql.DB
 	filter     bool
 	sortMethod int
@@ -198,21 +245,52 @@ type model struct {
 	cursor     int // page cursor index
 }
 
-var style = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff0000"))
+var styleCursor = lipgloss.NewStyle().
+	Foreground(lipgloss.Color(CURSOR_COLOR))
+var styleBold = lipgloss.NewStyle().
+	Bold(true)
+var styleAlbums = lipgloss.NewStyle().
+	MarginLeft(1)
+var styleHeader = lipgloss.NewStyle().
+	Border(lipgloss.NormalBorder())
+var styleHeaderCell = lipgloss.NewStyle().
+	Width(CELL_WIDTH)
 
-func initialModel(conf *musli.Config, db *sql.DB) (*model, error) {
+func initialModel(conf *config, db *sql.DB) (*model, error) {
 	albums, err := musli.FetchAlbumsByRandom(db)
 	if err != nil {
 		return nil, err
 	}
+	if len(albums) == 0 {
+		err := execScan(conf, db)
+		if err != nil {
+			return nil, err
+		}
+		albums, err = musli.FetchAlbumsByRandom(db)
+		if err != nil {
+			return nil, err
+		}
+		if len(albums) == 0 {
+			return nil, nil
+		}
+	}
+
+	if term.IsTerminal(0) {
+		tw, _, err := term.GetSize(0)
+		if err != nil {
+			return nil, err
+		}
+		styleHeader.Width(tw - 2) // subtract 2 for border width
+	}
+	styleCursor.Foreground(lipgloss.Color(conf.CursorColor))
 	m := &model{
 		albums:     albums,
 		conf:       conf,
 		db:         db,
 		filter:     false,
+		query:      "",
 		sortMethod: 0,
 		sortAsc:    true,
-		query:      "",
 		start:      0,
 		cursor:     0,
 	}
@@ -228,7 +306,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		key := msg.String()
 		if key == "ctrl+c" {
-			return m, tea.Quit
+			return m.quit(nil)
 		}
 		var cmd tea.Cmd
 		var err error
@@ -238,7 +316,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd, err = m.controllerMain(key)
 		}
 		if err != nil {
-			fmt.Println(err.Error())
+			return m.quit(err)
 		}
 		if cmd != nil {
 			return m, cmd
@@ -248,7 +326,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.start = 0
 		albums, err := musli.FetchAlbumsByQuery(m.query, m.db)
 		if err != nil {
-			fmt.Println(err.Error())
+			return m.quit(err)
 		}
 		m.albums = albums
 	}
@@ -256,39 +334,26 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) View() string {
-	s := ""
-	if m.filter {
-		s += "Query: " + m.query + "\n"
-	}
-	for i := m.start; i <= m.start+m.conf.PageLength && i < len(m.albums); i++ {
-		a := m.albums[i]
-		t := m.conf.ListTemplate
-		t = strings.Replace(t, "%album%", a.Name, -1)
-		t = strings.Replace(t, "%artist%", a.AlbumArtist, -1)
-		t = strings.Replace(t, "%year%", strconv.Itoa(a.Year), -1)
-		if m.start+m.cursor == i {
-			t = style.Render(t)
-		}
-		s += t + "\n"
-	}
-	if !m.filter && len(m.query) == 0 {
-		s += "\nsort: " + sortMethods[m.sortMethod]
-		if m.sortMethod != sortMethodRandom {
-			s += "\t order: "
-			if m.sortAsc {
-				s += "ascending"
-			} else {
-				s += "descending"
-			}
-		}
-	}
+	s := m.viewHeader()
+	s += m.viewAlbums()
 	return s
+}
+
+func (m *model) quit(err error) (tea.Model, tea.Cmd) {
+	if err != nil {
+		fmt.Println("musli: ", err.Error())
+	}
+	return m, tea.Quit
 }
 
 func (m *model) controllerMain(key string) (tea.Cmd, error) {
 	switch key {
 	case "q":
 		return tea.Quit, nil
+	case "pgup":
+		m.moveStart()
+	case "pgdown":
+		m.moveEnd()
 	case "left", "h":
 		m.moveLeft()
 	case "up", "k":
@@ -317,12 +382,11 @@ func (m *model) controllerMain(key string) (tea.Cmd, error) {
 		m.cursor = m.start
 		m.filter = true
 	case "enter", " ":
-		album := m.albums[m.cursor]
-		err := musli.PlayAlbum(album.ID, m.conf, m.db)
+		album := m.albums[m.start+m.cursor]
+		err := musli.PlayAlbum(album.ID, m.conf.ExecCmd, m.conf.ShowStdout, m.conf.ShowStderr, m.db)
 		if err != nil {
 			return nil, err
 		}
-		return tea.Quit, nil
 	}
 	return nil, nil
 }
@@ -354,6 +418,50 @@ func (m *model) controllerFilter(key string) (tea.Cmd, error) {
 	return nil, nil
 }
 
+func (m *model) viewHeader() string {
+	cur := m.start/m.conf.PageLength + 1
+	total := len(m.albums)/m.conf.PageLength + 1
+	pg := styleBold.Render("pg: ")
+	pg += strconv.Itoa(cur) + " / " + strconv.Itoa(total)
+	s := styleHeaderCell.Render(pg)
+	if m.filter {
+		s += "query: " + m.query
+	} else if !m.filter && len(m.query) == 0 {
+		sort := styleBold.Render("sort: ") + sortMethods[m.sortMethod]
+		s += styleHeaderCell.Render(sort)
+		if m.sortMethod != sortMethodRandom {
+			s += styleBold.Render("order: ")
+			if m.sortAsc {
+				s += "asc"
+			} else {
+				s += "desc"
+			}
+		}
+	}
+	return styleHeader.Render(s) + "\n"
+}
+
+func (m *model) viewAlbums() string {
+	if len(m.albums) == 0 {
+		return styleAlbums.Render("no results")
+	}
+	var s string
+	y := 0 // current year value
+	for i := m.start; i < m.start+m.conf.PageLength && i < len(m.albums); i++ {
+		a := m.albums[i]
+		if m.sortMethod == sortMethodYear && a.Year != y {
+			y = a.Year
+			s += styleBold.Render(strconv.Itoa(y)) + "\n"
+		}
+		as := a.AlbumArtist + " - " + a.Name
+		if m.start+m.cursor == i {
+			as = styleCursor.Render(as)
+		}
+		s += as + "\n"
+	}
+	return styleAlbums.Render(s)
+}
+
 func (m *model) toggleSortMethod() error {
 	m.sortMethod++
 	if m.sortMethod >= len(sortMethods) {
@@ -381,7 +489,7 @@ func (m *model) moveUp() {
 }
 
 func (m *model) moveDown() {
-	if m.cursor < m.conf.PageLength && m.start+m.cursor < len(m.albums)-1 {
+	if m.cursor < m.conf.PageLength-1 && m.start+m.cursor < len(m.albums)-1 {
 		m.cursor++
 	}
 }
@@ -390,4 +498,19 @@ func (m *model) moveRight() {
 	if m.start+m.conf.PageLength < len(m.albums)-1 {
 		m.start += m.conf.PageLength
 	}
+	if m.start+m.cursor > len(m.albums)-1 {
+		m.cursor = len(m.albums) - m.start - 1
+	}
+}
+
+func (m *model) moveStart() {
+	m.start = 0
+}
+
+func (m *model) moveEnd() {
+	i := m.start
+	for i+m.conf.PageLength < len(m.albums) {
+		i += m.conf.PageLength
+	}
+	m.start = i
 }

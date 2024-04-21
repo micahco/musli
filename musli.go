@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/BurntSushi/toml"
 	"github.com/dhowden/tag"
 	_ "modernc.org/sqlite"
 )
@@ -30,39 +29,6 @@ type Track struct {
 	Disc        int
 	Path        string
 	TrackNumber int
-}
-
-type Config struct {
-	MusicDir     string
-	ExecCmd      string
-	ListTemplate string
-	HiglightSGR  []int
-	PageLength   int
-	ShowStdout   bool
-	ShowStderr   bool
-}
-
-func ReadConfig(path string) (*Config, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil, err
-	}
-
-	conf := Config{ // Default values
-		MusicDir:     filepath.Join(home, "Music"),
-		ExecCmd:      "mpv",
-		ListTemplate: "%artist% - %album%",
-		HiglightSGR:  []int{7}, // invert
-		PageLength:   10,
-		ShowStdout:   false,
-		ShowStderr:   false,
-	}
-
-	_, err = toml.DecodeFile(path, &conf)
-	if err != nil {
-		return nil, err
-	}
-	return &conf, nil
 }
 
 func OpenDB(path string) (*sql.DB, error) {
@@ -121,9 +87,9 @@ func CloseDB(db *sql.DB) error {
 	return nil
 }
 
-func GetMusicDirPaths(conf *Config) ([]string, error) {
+func GetMusicDirPaths(dir string) ([]string, error) {
 	var paths []string
-	err := filepath.WalkDir(conf.MusicDir, func(path string, di fs.DirEntry, err error) error {
+	err := filepath.WalkDir(dir, func(path string, di fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -359,15 +325,15 @@ func FindAlbumsByYear(query []string, db *sql.DB) ([]Album, error) {
 	return albums, nil
 }
 
-func PlayAlbum(albumID int64, conf *Config, db *sql.DB) error {
+func PlayAlbum(albumID int64, execCmd string, showOut bool, showErr bool, db *sql.DB) error {
 	paths, err := fetchTrackPaths(albumID, db)
 	if err != nil {
 		return err
 	}
-	c := strings.Split(conf.ExecCmd, " ")
+	c := strings.Split(execCmd, " ")
 	args := append(c[1:], paths...)
 	cmd := exec.Command(c[0], args...)
-	if conf.ShowStdout {
+	if showOut {
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
 			return err
@@ -376,7 +342,7 @@ func PlayAlbum(albumID int64, conf *Config, db *sql.DB) error {
 		if err != nil {
 			return err
 		}
-	} else if conf.ShowStderr {
+	} else if showErr {
 		stderr, err := cmd.StderrPipe()
 		if err != nil {
 			return err
