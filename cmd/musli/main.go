@@ -250,7 +250,8 @@ var styleCursor = lipgloss.NewStyle().
 var styleBold = lipgloss.NewStyle().
 	Bold(true)
 var styleAlbums = lipgloss.NewStyle().
-	MarginLeft(1)
+	MarginLeft(1).
+	TabWidth(5)
 var styleHeader = lipgloss.NewStyle().
 	Border(lipgloss.NormalBorder())
 var styleHeaderCell = lipgloss.NewStyle().
@@ -402,6 +403,13 @@ func (m *model) controllerFilter(key string) (tea.Cmd, error) {
 		m.filter = false
 		m.start = 0
 		m.cursor = 0
+		if len(m.query) == 0 {
+			albums, err := fetchAlbums(m.db, m.sortMethod, m.sortAsc)
+			if err != nil {
+				return nil, err
+			}
+			m.albums = albums
+		}
 	case "esc":
 		m.filter = false
 		m.query = ""
@@ -424,8 +432,8 @@ func (m *model) viewHeader() string {
 	pg := styleBold.Render("pg: ")
 	pg += strconv.Itoa(cur) + " / " + strconv.Itoa(total)
 	s := styleHeaderCell.Render(pg)
-	if m.filter {
-		s += "query: " + m.query
+	if m.filter || len(m.query) > 0 {
+		s += styleBold.Render("query: ") + m.query + "_"
 	} else if !m.filter && len(m.query) == 0 {
 		sort := styleBold.Render("sort: ") + sortMethods[m.sortMethod]
 		s += styleHeaderCell.Render(sort)
@@ -449,12 +457,16 @@ func (m *model) viewAlbums() string {
 	y := 0 // current year value
 	for i := m.start; i < m.start+m.conf.PageLength && i < len(m.albums); i++ {
 		a := m.albums[i]
-		if m.sortMethod == sortMethodYear && a.Year != y {
-			y = a.Year
-			s += styleBold.Render(strconv.Itoa(y)) + "\n"
+		if m.sortMethod == sortMethodYear {
+			if a.Year != y {
+				y = a.Year
+				s += styleBold.Render(strconv.Itoa(y)) + " "
+			} else {
+				s += "\t"
+			}
 		}
 		as := a.AlbumArtist + " - " + a.Name
-		if m.start+m.cursor == i {
+		if m.start+m.cursor == i && !m.filter {
 			as = styleCursor.Render(as)
 		}
 		s += as + "\n"
