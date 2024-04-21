@@ -52,7 +52,7 @@ func ReadConfig(path string) (*Config, error) {
 		MusicDir:     filepath.Join(home, "Music"),
 		ExecCmd:      "mpv",
 		ListTemplate: "%artist% - %album%",
-		HiglightSGR:  []int{7},
+		HiglightSGR:  []int{7}, // invert
 		PageLength:   10,
 		ShowStdout:   false,
 		ShowStderr:   false,
@@ -234,7 +234,7 @@ func RemoveEmptyAlbums(db *sql.DB) error {
 	return nil
 }
 
-func FetchRandomAlbums(db *sql.DB) ([]Album, error) {
+func FetchAlbumsByRandom(db *sql.DB) ([]Album, error) {
 	rows, err := db.Query("SELECT * FROM albums ORDER BY RANDOM();")
 	if err != nil {
 		return nil, err
@@ -248,7 +248,44 @@ func FetchRandomAlbums(db *sql.DB) ([]Album, error) {
 	return albums, nil
 }
 
-func FindAlbumsByNameOrArtist(query string, db *sql.DB) ([]Album, error) {
+func getFetchOrder(asc bool) string {
+	if asc {
+		return "ASC"
+	}
+	return "DESC"
+}
+
+func FetchAlbumsByAlbumArtist(asc bool, db *sql.DB) ([]Album, error) {
+	rows, err := db.Query(`SELECT * FROM albums
+						ORDER BY album_artist ` + getFetchOrder(asc))
+	if err != nil {
+		return nil, err
+	}
+
+	albums, err := parseRowsToAlbums(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	return albums, nil
+}
+
+func FetchAlbumsByYear(asc bool, db *sql.DB) ([]Album, error) {
+	rows, err := db.Query(`SELECT * FROM albums
+						ORDER BY year ` + getFetchOrder(asc))
+	if err != nil {
+		return nil, err
+	}
+
+	albums, err := parseRowsToAlbums(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	return albums, nil
+}
+
+func FetchAlbumsByQuery(query string, db *sql.DB) ([]Album, error) {
 	a := "%" + query + "%"
 	rows, err := db.Query(`SELECT * FROM albums WHERE
 						name LIKE ? OR album_artist LIKE ?
@@ -374,7 +411,6 @@ func startCmdWithOutput(cmd *exec.Cmd, r io.ReadCloser) error {
 	return nil
 }
 
-// Need to test
 func readAltYearMetadata(m tag.Metadata) int {
 	// https://eyed3.readthedocs.io/en/latest/compliance.html
 	r := m.Raw()

@@ -2,16 +2,19 @@ package main
 
 import (
 	"database/sql"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/micahco/musli"
-	"github.com/micahco/musli/cmd/musli/term"
 )
+
+const APP_NAME = "musli"
+const ESCAPE = "\033"
 
 func main() {
 	exitCode := 0
@@ -21,7 +24,7 @@ func main() {
 
 	err := root(os.Args[1:])
 	if err != nil {
-		printMsg(err.Error())
+		fmt.Println(APP_NAME + ": " + err.Error())
 		exitCode = 1
 	}
 }
@@ -38,25 +41,39 @@ func root(args []string) error {
 	}
 	defer musli.CloseDB(db)
 
-	if len(args) < 1 {
-		execRandom(conf, db)
-		return nil
+	if len(args) == 0 {
+		m, err := initialModel(conf, db)
+		if err != nil {
+			return err
+		}
+		p := tea.NewProgram(m)
+		_, err = p.Run()
+		return err
 	}
 
-	switch args[0] {
+	switch arg := args[0]; arg {
 	case "-h", "--help":
 		printUsage()
+	case "-r", "--random":
+		// play random album
 	case "-s", "--scan":
 		err = execScan(conf, db)
 	case "-t", "--tidy":
 		err = execTidy(db)
 	default:
-		return fmt.Errorf("invalid option: '%s'", args[0])
+		return fmt.Errorf("invalid option: '%s'", arg)
 	}
 	if err != nil {
 		return err
 	}
 	return nil
+}
+
+func printUsage() {
+	fmt.Printf("Usage of %s:", APP_NAME)
+	fmt.Println(`
+-s, --scan: scan music directory for new files
+-t, --tidy: scrub library for entries that no longer exist`)
 }
 
 func getAppPath(filename string) (string, error) {
@@ -97,43 +114,9 @@ func loadDB() (*sql.DB, error) {
 	return db, nil
 }
 
-func execQuery(args []string, conf *musli.Config, db *sql.DB) error {
-	if len(args) < 1 {
-		return errors.New("no query")
-	}
-
-	albums, err := musli.FindAlbumsByNameOrArtist(args[0], db)
-	if err != nil {
-		return err
-	}
-	if len(albums) == 0 {
-		printNoResults()
-		return nil
-	}
-	err = listAlbums(albums, conf, db)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func execRandom(conf *musli.Config, db *sql.DB) error {
-	albums, err := musli.FetchRandomAlbums(db)
-	if err != nil {
-		return err
-	}
-
-	if len(albums) == 0 {
-		printNoResults()
-		return nil
-	}
-
-	err = listAlbums(albums, conf, db)
-	if err != nil {
-		return err
-	}
-
-	return nil
+func clearLine(a ...any) {
+	fmt.Printf("%s[1A%s[K", ESCAPE, ESCAPE)
+	fmt.Println(a...)
 }
 
 func execScan(conf *musli.Config, db *sql.DB) error {
@@ -146,13 +129,13 @@ func execScan(conf *musli.Config, db *sql.DB) error {
 
 	for i, path := range paths {
 		err = musli.AddPathToLibrary(path, db)
-		term.ClearLine(i, "/", total)
+		clearLine(i, "/", total)
 		if err != nil {
 			return err
 		}
 	}
 
-	term.ClearLine("Scanned", total, "files")
+	clearLine("Scanned", total, "files")
 	return nil
 }
 
@@ -166,125 +149,245 @@ func execTidy(db *sql.DB) error {
 
 	for i, path := range paths {
 		err = musli.RemoveNotExistPath(path, db)
-		term.ClearLine(i, "/", total)
+		clearLine(i, "/", total)
 		if err != nil {
 			return err
 		}
 	}
 
-	term.ClearLine("Cleaning up")
+	clearLine("Cleaning up")
 	err = musli.RemoveEmptyAlbums(db)
 	if err != nil {
 		return err
 	}
-	term.ClearLine("Scrubbed", total, "files")
+	clearLine("Scrubbed", total, "files")
 	return nil
 }
 
-func execYear(args []string, conf *musli.Config, db *sql.DB) error {
-	if len(args) < 1 {
-		return errors.New("no query")
-	}
+var sortMethods = [3]string{"random", "artist", "year"}
 
-	albums, err := musli.FindAlbumsByYear(args, db)
+const (
+	sortMethodRandom = iota
+	sortMethodArtist
+	sortMethodYear
+)
+
+func fetchAlbums(db *sql.DB, sortMethod int, asc bool) ([]musli.Album, error) {
+	var albums []musli.Album
+	var err error
+	switch sortMethod {
+	case sortMethodRandom:
+		albums, err = musli.FetchAlbumsByRandom(db)
+	case sortMethodArtist:
+		albums, err = musli.FetchAlbumsByAlbumArtist(asc, db)
+	case sortMethodYear:
+		albums, err = musli.FetchAlbumsByYear(asc, db)
+	}
+	return albums, err
+}
+
+type model struct {
+	albums     []musli.Album
+	conf       *musli.Config
+	db         *sql.DB
+	filter     bool
+	sortMethod int
+	sortAsc    bool // true = ascending; false = descending
+	query      string
+	start      int // page start index
+	cursor     int // page cursor index
+}
+
+var style = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff0000"))
+
+func initialModel(conf *musli.Config, db *sql.DB) (*model, error) {
+	albums, err := musli.FetchAlbumsByRandom(db)
 	if err != nil {
-		return err
+		return nil, err
 	}
-
-	if len(albums) == 0 {
-		printNoResults()
-		return nil
+	m := &model{
+		albums:     albums,
+		conf:       conf,
+		db:         db,
+		filter:     false,
+		sortMethod: 0,
+		sortAsc:    true,
+		query:      "",
+		start:      0,
+		cursor:     0,
 	}
+	return m, nil
+}
 
-	err = listAlbums(albums, conf, db)
-	if err != nil {
-		return err
-	}
-
+func (m *model) Init() tea.Cmd {
 	return nil
 }
 
-func printMsg(s ...string) {
-	msg := os.Args[0]
-	for _, m := range s {
-		msg += ": " + m
-	}
-	fmt.Println(msg)
-}
-
-func printNoResults() {
-	printMsg("no results")
-}
-
-func printUsage() {
-	fmt.Printf("Usage of %s:", os.Args[0])
-	fmt.Println(`
--s, --scan: scan music directory for new files
--t, --tidy: scrub library for entries that no longer exist`)
-}
-
-func printAlbum(a musli.Album, t string, highlight bool, sgr []int) {
-	t = strings.Replace(t, "%album%", a.Name, -1)
-	t = strings.Replace(t, "%artist%", a.AlbumArtist, -1)
-	t = strings.Replace(t, "%year%", strconv.Itoa(a.Year), -1)
-	if highlight {
-		t = term.SprintSGR(t, sgr...)
-	}
-	fmt.Println(t)
-}
-
-func validateListIndex(i, p, l, max int) int {
-	end := p + l - 1
-	if i < p {
-		return p
-	} else if i > end {
-		return end
-	} else if i > max {
-		return max
-	}
-	return i
-}
-
-func listAlbums(albums []musli.Album, conf *musli.Config, db *sql.DB) error {
-	err := term.OpenCLI()
-	if err != nil {
-		return err
-	}
-	defer term.CloseCLI()
-
-	l := conf.PageLength
-	max := len(albums) - 1
-	var p, i int // page start, index
-	for {
-		term.ClearScreen()
-		i = validateListIndex(i, p, l, max)
-		for j := p; j < p+l && j <= max; j++ {
-			printAlbum(albums[j], conf.ListTemplate, j == i, conf.HiglightSGR)
+func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		key := msg.String()
+		if key == "ctrl+c" {
+			return m, tea.Quit
 		}
-
-		in, err := term.GetInput()
+		var cmd tea.Cmd
+		var err error
+		if m.filter {
+			cmd, err = m.controllerFilter(key)
+		} else {
+			cmd, err = m.controllerMain(key)
+		}
 		if err != nil {
-			return err
+			fmt.Println(err.Error())
 		}
-		switch {
-		case in["enter"]:
-			err = musli.PlayAlbum(albums[i].ID, conf, db)
-			if err != nil {
-				return err
+		if cmd != nil {
+			return m, cmd
+		}
+	}
+	if m.filter && len(m.query) > 0 {
+		m.start = 0
+		albums, err := musli.FetchAlbumsByQuery(m.query, m.db)
+		if err != nil {
+			fmt.Println(err.Error())
+		}
+		m.albums = albums
+	}
+	return m, nil
+}
+
+func (m *model) View() string {
+	s := ""
+	if m.filter {
+		s += "Query: " + m.query + "\n"
+	}
+	for i := m.start; i <= m.start+m.conf.PageLength && i < len(m.albums); i++ {
+		a := m.albums[i]
+		t := m.conf.ListTemplate
+		t = strings.Replace(t, "%album%", a.Name, -1)
+		t = strings.Replace(t, "%artist%", a.AlbumArtist, -1)
+		t = strings.Replace(t, "%year%", strconv.Itoa(a.Year), -1)
+		if m.start+m.cursor == i {
+			t = style.Render(t)
+		}
+		s += t + "\n"
+	}
+	if !m.filter && len(m.query) == 0 {
+		s += "\nsort: " + sortMethods[m.sortMethod]
+		if m.sortMethod != sortMethodRandom {
+			s += "\t order: "
+			if m.sortAsc {
+				s += "ascending"
+			} else {
+				s += "descending"
 			}
-			return nil
-		case in["down"]:
-			i++
-		case in["up"]:
-			i--
-		case in["left"] && p-l >= 0:
-			i -= l
-			p -= l
-		case in["right"] && p+l <= max:
-			i += l
-			p += l
-		case in["quit"]:
-			return nil
 		}
+	}
+	return s
+}
+
+func (m *model) controllerMain(key string) (tea.Cmd, error) {
+	switch key {
+	case "q":
+		return tea.Quit, nil
+	case "left", "h":
+		m.moveLeft()
+	case "up", "k":
+		m.moveUp()
+	case "down", "j":
+		m.moveDown()
+	case "right", "l":
+		m.moveRight()
+	case "o":
+		if len(m.query) == 0 && m.sortMethod != sortMethodRandom {
+			m.sortAsc = !m.sortAsc
+			albums, err := fetchAlbums(m.db, m.sortMethod, m.sortAsc)
+			if err != nil {
+				return nil, err
+			}
+			m.albums = albums
+		}
+	case "s":
+		if len(m.query) == 0 {
+			err := m.toggleSortMethod()
+			if err != nil {
+				return nil, err
+			}
+		}
+	case "/":
+		m.cursor = m.start
+		m.filter = true
+	case "enter", " ":
+		album := m.albums[m.cursor]
+		err := musli.PlayAlbum(album.ID, m.conf, m.db)
+		if err != nil {
+			return nil, err
+		}
+		return tea.Quit, nil
+	}
+	return nil, nil
+}
+
+func (m *model) controllerFilter(key string) (tea.Cmd, error) {
+	switch key {
+	case "backspace":
+		if len(m.query) > 0 {
+			// remove last character from query
+			m.query = m.query[:len(m.query)-1]
+		}
+	case "enter":
+		m.filter = false
+		m.start = 0
+		m.cursor = 0
+	case "esc":
+		m.filter = false
+		m.query = ""
+		albums, err := fetchAlbums(m.db, m.sortMethod, m.sortAsc)
+		if err != nil {
+			return nil, err
+		}
+		m.albums = albums
+	default:
+		if len(key) == 1 {
+			m.query += key
+		}
+	}
+	return nil, nil
+}
+
+func (m *model) toggleSortMethod() error {
+	m.sortMethod++
+	if m.sortMethod >= len(sortMethods) {
+		m.sortMethod = 0
+	}
+	albums, err := fetchAlbums(m.db, m.sortMethod, m.sortAsc)
+	if err != nil {
+		return err
+	}
+	m.albums = albums
+	return nil
+}
+
+func (m *model) moveLeft() {
+	m.start -= m.conf.PageLength
+	if m.start < 0 {
+		m.start = 0
+	}
+}
+
+func (m *model) moveUp() {
+	if m.cursor > 0 {
+		m.cursor--
+	}
+}
+
+func (m *model) moveDown() {
+	if m.cursor < m.conf.PageLength && m.start+m.cursor < len(m.albums)-1 {
+		m.cursor++
+	}
+}
+
+func (m *model) moveRight() {
+	if m.start+m.conf.PageLength < len(m.albums)-1 {
+		m.start += m.conf.PageLength
 	}
 }
