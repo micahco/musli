@@ -383,7 +383,6 @@ func (m *model) controllerMain(key string) (tea.Cmd, error) {
 		m.cursor = -1
 		m.filter = true
 	case "enter", " ":
-		m.cursor = 0
 		album := m.albums[m.start+m.cursor]
 		err := musli.PlayAlbum(album.ID, m.conf.ExecCmd, m.conf.ShowStdout, m.conf.ShowStderr, m.db)
 		if err != nil {
