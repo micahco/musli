@@ -380,13 +380,21 @@ func (m *model) controllerMain(key string) (tea.Cmd, error) {
 			}
 		}
 	case "/":
-		m.cursor = m.start
+		m.cursor = -1
 		m.filter = true
 	case "enter", " ":
+		m.cursor = 0
 		album := m.albums[m.start+m.cursor]
 		err := musli.PlayAlbum(album.ID, m.conf.ExecCmd, m.conf.ShowStdout, m.conf.ShowStderr, m.db)
 		if err != nil {
 			return nil, err
+		}
+	case "esc":
+		if len(m.query) > 0 {
+			err := m.clearFilter()
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 	return nil, nil
@@ -395,11 +403,9 @@ func (m *model) controllerMain(key string) (tea.Cmd, error) {
 func (m *model) controllerFilter(key string) (tea.Cmd, error) {
 	switch key {
 	case "backspace":
-		if len(m.query) > 0 {
-			// remove last character from query
-			m.query = m.query[:len(m.query)-1]
-		}
+		m.removeLastCharOfQuery()
 	case "enter":
+		m.removeLastCharOfQuery()
 		m.filter = false
 		m.start = 0
 		m.cursor = 0
@@ -411,19 +417,35 @@ func (m *model) controllerFilter(key string) (tea.Cmd, error) {
 			m.albums = albums
 		}
 	case "esc":
+		m.removeLastCharOfQuery()
 		m.filter = false
-		m.query = ""
-		albums, err := fetchAlbums(m.db, m.sortMethod, m.sortAsc)
+		err := m.clearFilter()
 		if err != nil {
 			return nil, err
 		}
-		m.albums = albums
 	default:
 		if len(key) == 1 {
 			m.query += key
 		}
 	}
 	return nil, nil
+}
+
+func (m *model) removeLastCharOfQuery() {
+	if len(m.query) > 0 {
+		m.query = m.query[:len(m.query)-1]
+	}
+}
+
+func (m *model) clearFilter() error {
+	m.cursor = 0
+	m.query = ""
+	albums, err := fetchAlbums(m.db, m.sortMethod, m.sortAsc)
+	if err != nil {
+		return err
+	}
+	m.albums = albums
+	return nil
 }
 
 func (m *model) viewHeader() string {
@@ -457,7 +479,7 @@ func (m *model) viewAlbums() string {
 	y := 0 // current year value
 	for i := m.start; i < m.start+m.conf.PageLength && i < len(m.albums); i++ {
 		a := m.albums[i]
-		if m.sortMethod == sortMethodYear {
+		if m.sortMethod == sortMethodYear && !m.filter && len(m.query) == 0 {
 			if a.Year != y {
 				y = a.Year
 				s += styleBold.Render(strconv.Itoa(y)) + " "
