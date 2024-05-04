@@ -167,7 +167,7 @@ func clearLine(a ...any) {
 }
 
 func execScan(conf *config, db *sql.DB) error {
-	fmt.Println("Scanning directory")
+	fmt.Println("Scanning:", conf.MusicDir)
 	paths, err := musli.GetMusicDirPaths(conf.MusicDir)
 	if err != nil {
 		return err
@@ -402,9 +402,11 @@ func (m *model) controllerMain(key string) (tea.Cmd, error) {
 func (m *model) controllerFilter(key string) (tea.Cmd, error) {
 	switch key {
 	case "backspace":
-		m.removeLastCharOfQuery()
+		if len(m.query) > 0 {
+			// remove last char from query
+			m.query = m.query[:len(m.query)-1]
+		}
 	case "enter":
-		m.removeLastCharOfQuery()
 		m.filter = false
 		m.start = 0
 		m.cursor = 0
@@ -416,7 +418,6 @@ func (m *model) controllerFilter(key string) (tea.Cmd, error) {
 			m.albums = albums
 		}
 	case "esc":
-		m.removeLastCharOfQuery()
 		m.filter = false
 		err := m.clearFilter()
 		if err != nil {
@@ -428,12 +429,6 @@ func (m *model) controllerFilter(key string) (tea.Cmd, error) {
 		}
 	}
 	return nil, nil
-}
-
-func (m *model) removeLastCharOfQuery() {
-	if len(m.query) > 0 {
-		m.query = m.query[:len(m.query)-1]
-	}
 }
 
 func (m *model) clearFilter() error {
@@ -454,7 +449,10 @@ func (m *model) viewHeader() string {
 	pg += strconv.Itoa(cur) + " / " + strconv.Itoa(total)
 	s := styleHeaderCell.Render(pg)
 	if m.filter || len(m.query) > 0 {
-		s += styleBold.Render("query: ") + m.query + "_"
+		s += styleBold.Render("query: ") + m.query
+		if m.filter {
+			s += styleBold.Render("_")
+		}
 	} else if !m.filter && len(m.query) == 0 {
 		sort := styleBold.Render("sort: ") + sortMethods[m.sortMethod]
 		s += styleHeaderCell.Render(sort)

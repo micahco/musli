@@ -1,5 +1,5 @@
 MusicDir = "/home/micah/share/music"
-ExecCmd = "mpv"
+ExecCmd = "/usr/bin/mpv"
 CursorColor = "202"
 PageLength = 10
 ShowStdout = false
