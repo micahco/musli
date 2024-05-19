@@ -166,17 +166,12 @@ func AddPathToLibrary(path string, db *sql.DB) error {
 	return nil
 }
 
-func RemoveNotExistPath(path string, db *sql.DB) error {
-	_, err := os.Stat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		_, err := db.Exec(`DELETE FROM tracks WHERE path = ?`, path)
-		if err != nil {
-			return err
-		}
-	}
+func DeleteTrack(path string, db *sql.DB) error {
+	_, err := db.Exec(`DELETE FROM tracks WHERE path = ?`, path)
 	return err
 }
 
+// Iterate through all albums in DB and delete albums with no tracks.
 func RemoveEmptyAlbums(db *sql.DB) error {
 	albumIDs, err := fetchAlbumIDs(db)
 	if err != nil {
@@ -200,7 +195,7 @@ func RemoveEmptyAlbums(db *sql.DB) error {
 	return nil
 }
 
-func FetchAlbumsByRandom(db *sql.DB) ([]Album, error) {
+func GetAlbumsOrderRandom(db *sql.DB) ([]Album, error) {
 	rows, err := db.Query("SELECT * FROM albums ORDER BY RANDOM();")
 	if err != nil {
 		return nil, err
@@ -214,16 +209,16 @@ func FetchAlbumsByRandom(db *sql.DB) ([]Album, error) {
 	return albums, nil
 }
 
-func getFetchOrder(asc bool) string {
+func sqliteOrder(asc bool) string {
 	if asc {
 		return "ASC"
 	}
 	return "DESC"
 }
 
-func FetchAlbumsByAlbumArtist(asc bool, db *sql.DB) ([]Album, error) {
+func GetAlbumsOrderAlbumArtist(asc bool, db *sql.DB) ([]Album, error) {
 	rows, err := db.Query(`SELECT * FROM albums
-						ORDER BY album_artist ` + getFetchOrder(asc))
+						ORDER BY album_artist ` + sqliteOrder(asc))
 	if err != nil {
 		return nil, err
 	}
@@ -238,7 +233,7 @@ func FetchAlbumsByAlbumArtist(asc bool, db *sql.DB) ([]Album, error) {
 
 func FetchAlbumsByYear(asc bool, db *sql.DB) ([]Album, error) {
 	rows, err := db.Query(`SELECT * FROM albums
-						ORDER BY year ` + getFetchOrder(asc))
+						ORDER BY year ` + sqliteOrder(asc))
 	if err != nil {
 		return nil, err
 	}

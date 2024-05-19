@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"os"
@@ -74,7 +75,7 @@ func root(args []string) error {
 	case "-h", "--help":
 		printUsage()
 	case "-r", "--random":
-		albums, err := musli.FetchAlbumsByRandom(db)
+		albums, err := musli.GetAlbumsOrderRandom(db)
 		if err != nil {
 			return err
 		}
@@ -195,7 +196,11 @@ func execTidy(db *sql.DB) error {
 	total := len(paths)
 
 	for i, path := range paths {
-		err = musli.RemoveNotExistPath(path, db)
+		_, err := os.Stat(path)
+		// Check if path actually exists
+		if errors.Is(err, os.ErrNotExist) {
+			musli.DeleteTrack(path, db)
+		}
 		clearLine(i, "/", total)
 		if err != nil {
 			return err
@@ -224,9 +229,9 @@ func fetchAlbums(db *sql.DB, sortMethod int, asc bool) ([]musli.Album, error) {
 	var err error
 	switch sortMethod {
 	case sortMethodRandom:
-		albums, err = musli.FetchAlbumsByRandom(db)
+		albums, err = musli.GetAlbumsOrderRandom(db)
 	case sortMethodArtist:
-		albums, err = musli.FetchAlbumsByAlbumArtist(asc, db)
+		albums, err = musli.GetAlbumsOrderAlbumArtist(asc, db)
 	case sortMethodYear:
 		albums, err = musli.FetchAlbumsByYear(asc, db)
 	}
@@ -258,7 +263,7 @@ var styleHeaderCell = lipgloss.NewStyle().
 	Width(CELL_WIDTH)
 
 func initialModel(conf *config, db *sql.DB) (*model, error) {
-	albums, err := musli.FetchAlbumsByRandom(db)
+	albums, err := musli.GetAlbumsOrderRandom(db)
 	if err != nil {
 		return nil, err
 	}
@@ -267,7 +272,7 @@ func initialModel(conf *config, db *sql.DB) (*model, error) {
 		if err != nil {
 			return nil, err
 		}
-		albums, err = musli.FetchAlbumsByRandom(db)
+		albums, err = musli.GetAlbumsOrderRandom(db)
 		if err != nil {
 			return nil, err
 		}
