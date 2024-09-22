@@ -1,4 +1,4 @@
-package config
+package main
 
 import (
 	"errors"
@@ -22,7 +22,7 @@ var DefaultConfig = Config{
 	Debug:    false,
 }
 
-func Load(appDir string) (Config, error) {
+func LoadConfig() (Config, error) {
 	// Start with default values
 	conf := DefaultConfig
 
@@ -31,7 +31,7 @@ func Load(appDir string) (Config, error) {
 		return conf, err
 	}
 
-	path := filepath.Join(configDir, appDir, "config.toml")
+	path := filepath.Join(configDir, APP_NAME, "config.toml")
 
 	err = os.MkdirAll(filepath.Dir(path), os.ModePerm)
 	if err != nil {

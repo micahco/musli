@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"image/color"
 	"log"
@@ -14,8 +15,6 @@ import (
 	"gioui.org/widget"
 	"gioui.org/widget/material"
 	"gioui.org/x/component"
-	"github.com/micahco/musli/api"
-	"github.com/micahco/musli/config"
 )
 
 const APP_NAME = "musli"
@@ -24,12 +23,12 @@ func main() {
 	log.SetPrefix(fmt.Sprintf("%s: ", APP_NAME))
 	log.SetFlags(0)
 
-	conf, err := config.Load(APP_NAME)
+	conf, err := LoadConfig()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	api, err := api.New(APP_NAME)
+	api, err := NewAPI()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -47,32 +46,56 @@ func main() {
 	app.Main()
 }
 
-const (
-	initalCellSize = 100
-	cellSizeStep   = 50
-	minCellSize    = 100
-	maxCellSize    = 500
-)
-
 type (
 	C = layout.Context
 	D = layout.Dimensions
 )
 
-func draw(w *app.Window, api api.API, conf config.Config) error {
+const (
+	// Number of columns
+	ncolsMax     int = 31
+	ncolsMin     int = 3
+	ncolsInitial int = 9
+	ncolsStep    int = 2
+)
+
+func draw(w *app.Window, api API, conf Config) error {
 	th := material.NewTheme()
 	var (
-		ops          op.Ops
-		grid         component.GridState
+		ops op.Ops
+
+		// Components
+		grid component.GridState
+
+		// Buttons
 		updateButton widget.Clickable
+		cleanButton  widget.Clickable
+		sortButton   widget.Clickable
+
+		// State
+		albums []Album
+		//pictures []image.Image
+		clickers []widget.Clickable
+		updating bool
+		cleaning bool
+		progress int
+		total    int
 	)
 
-	clickers := []widget.Clickable{}
-	for i := 0; i < 1; i++ {
+	// Initial albums state
+	var err error
+	albums, err = api.GetRandomAlbums()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for i := 0; i < len(albums); i++ {
 		clickers = append(clickers, widget.Clickable{})
 	}
 
-	cellSize := initalCellSize
+	colorTransparent := color.NRGBA{R: 0, G: 0, B: 0, A: 0}
+
+	ncols := ncolsInitial
 
 	for {
 		switch e := w.Event().(type) {
@@ -82,7 +105,9 @@ func draw(w *app.Window, api api.API, conf config.Config) error {
 			gtx := app.NewContext(&ops, e)
 
 			for {
+				// Define which keypress to monitor
 				ev, ok := gtx.Event(
+					key.Filter{Optional: key.ModShift, Name: "0"},
 					key.Filter{Optional: key.ModShift, Name: "+"},
 					key.Filter{Optional: key.ModShift, Name: "="},
 					key.Filter{Optional: key.ModShift, Name: "-"},
@@ -91,19 +116,103 @@ func draw(w *app.Window, api api.API, conf config.Config) error {
 					break
 				}
 
+				// Handle keypress
 				if ev.(key.Event).State == key.Press {
 					name := ev.(key.Event).Name
+					if name == "0" {
+						// Reset ncols to initial state
+						ncols = ncolsInitial
+					}
 					if name == "+" || name == "=" {
-						if cellSize < maxCellSize {
-							cellSize += cellSizeStep
+						// Zoom in by decreasing the ncols
+						if ncols > ncolsMin {
+							ncols -= ncolsStep
 						}
 					}
 					if name == "-" {
-						if cellSize > minCellSize {
-							cellSize -= cellSizeStep
+						// Zoom out by incrasing the ncols
+						if ncols < ncolsMax {
+							ncols += ncolsStep
 						}
 					}
 				}
+			}
+
+			// Handle buttons and clickers
+			if updateButton.Clicked(gtx) && !(updating || cleaning) {
+				// Update library
+				go func() {
+					updating = true
+
+					paths, err := findAudioFilePaths(conf.MusicDir)
+					if err != nil {
+						log.Fatal(err)
+					}
+					total = len(paths)
+
+					for i, path := range paths {
+						progress = i
+						w.Invalidate()
+
+						err = api.AddPathToLibrary(path)
+						if err != nil {
+							log.Fatal(err)
+						}
+					}
+
+					// Reset state
+					total = 0
+					progress = 0
+					updating = false
+
+					albums, err = api.GetRandomAlbums()
+					if err != nil {
+						log.Fatal(err)
+					}
+				}()
+			}
+
+			if cleanButton.Clicked(gtx) && !(updating || cleaning) {
+				// Clean library
+				go func() {
+					cleaning = true
+
+					paths, err := api.AllTrackPaths()
+					if err != nil {
+						log.Fatal(err)
+					}
+					total = len(paths)
+
+					for i, path := range paths {
+						progress = i
+						w.Invalidate()
+
+						// Delete tracks that no longer exist
+						_, err := os.Stat(path)
+						if errors.Is(err, os.ErrNotExist) {
+							err = api.DeleteTrack(path)
+						}
+
+						if err != nil {
+							log.Fatal(err)
+						}
+					}
+
+					err = api.RemoveEmptyAlbums()
+					if err != nil {
+						log.Fatal(err)
+					}
+
+					// Reset state
+					total = 0
+					progress = 0
+					cleaning = false
+
+					albums, err = api.GetRandomAlbums()
+					if err != nil {
+						log.Fatal(err)
+					}
+				}()
 			}
 
 			for i := range clickers {
@@ -112,58 +221,149 @@ func draw(w *app.Window, api api.API, conf config.Config) error {
 				}
 			}
 
-			windowWidth := e.Size.X
-			colCount := windowWidth / cellSize
-			rowCount := len(clickers)/colCount + 1
+			cellSize := e.Size.X / ncols
+			nrows := (len(clickers) / ncols) + 1
 
+			// Root flex container
 			layout.Flex{
-				Axis: layout.Horizontal,
+				Axis: layout.Vertical,
 			}.Layout(gtx,
-				// Update button
+
+				// Padding
+				layout.Rigid(
+					layout.Spacer{Height: unit.Dp(5)}.Layout,
+				),
+
+				// Top bar
 				layout.Rigid(
 					func(gtx C) D {
-						// The text on the button depends on program state
-						text := "Update"
-						btn := material.Button(th, &updateButton, text)
-						return btn.Layout(gtx)
+						return layout.Flex{
+							Axis:    layout.Horizontal,
+							Spacing: layout.SpaceBetween,
+						}.Layout(gtx,
+
+							layout.Rigid(
+								func(gtx C) D {
+									return layout.Flex{
+										Axis: layout.Horizontal,
+									}.Layout(gtx,
+
+										// Update button
+										layout.Rigid(
+											func(gtx C) D {
+												var text string
+												if updating {
+													text = "Updating"
+													if total == 0 {
+														text += "..."
+													} else {
+														text += fmt.Sprintf(" (%d/%d)", progress, total)
+													}
+												} else {
+													text = "Update library"
+												}
+
+												btn := material.Button(th, &updateButton, text)
+
+												return btn.Layout(gtx)
+											},
+										),
+
+										// Padding
+										layout.Rigid(
+											layout.Spacer{Width: unit.Dp(5)}.Layout,
+										),
+
+										// Clean button
+										layout.Rigid(
+											func(gtx C) D {
+												var text string
+												if cleaning {
+													text = "Cleaning"
+													if total == 0 {
+														text += "..."
+													} else {
+														text += fmt.Sprintf(" (%d/%d)", progress, total)
+													}
+												} else {
+													text = "Clean library"
+												}
+
+												btn := material.Button(th, &cleanButton, text)
+
+												return btn.Layout(gtx)
+											},
+										),
+									)
+								},
+							),
+
+							// TODO: Query text input
+
+							layout.Rigid(
+								func(gtx C) D {
+									return layout.Flex{
+										Axis: layout.Horizontal,
+									}.Layout(gtx,
+
+										// TODO: sort
+										layout.Rigid(
+											func(gtx C) D {
+												text := "Sort: Random"
+												btn := material.Button(th, &sortButton, text)
+
+												return btn.Layout(gtx)
+											},
+										),
+									)
+								},
+							),
+						)
 					},
 				),
 
+				// Padding
+				layout.Rigid(
+					layout.Spacer{Height: unit.Dp(5)}.Layout,
+				),
+
+				// Grid
 				layout.Rigid(
 					func(gtx C) D {
-						// The text on the button depends on program state
-						text := "Update"
-						btn := material.Button(th, &updateButton, text)
-						return btn.Layout(gtx)
+						return component.Grid(th, &grid).Layout(gtx, nrows, ncols,
+							func(axis layout.Axis, index, constraint int) int {
+								return gtx.Dp(unit.Dp(cellSize))
+							},
+							func(gtx C, row, col int) D {
+								// Calculate index
+								i := (row * ncols) + col
+
+								// Check if index is in bounds
+								if i >= len(clickers) {
+									return D{}
+								}
+
+								// Stack container
+								return layout.Stack{}.Layout(gtx,
+									// Album picture
+									layout.Stacked(func(gtx C) D {
+										return layout.Dimensions{}
+									}),
+
+									// Transparent button
+									layout.Stacked(func(gtx C) D {
+										txt := fmt.Sprintf("%s - %s", albums[i].AlbumArtist, albums[i].Name)
+										btn := material.Button(th, &clickers[i], txt)
+										btn.Background = colorTransparent
+										btn.CornerRadius = 0
+										return btn.Layout(gtx)
+									}),
+								)
+							},
+						)
 					},
 				),
 			)
-
-			component.Grid(th, &grid).Layout(gtx, rowCount, colCount,
-				func(axis layout.Axis, index, constraint int) int {
-					return gtx.Dp(unit.Dp(cellSize))
-				},
-				func(gtx C, row, col int) D {
-					// Calculate index
-					i := row*colCount + col
-
-					// Check if index is in bounds
-					if i >= len(clickers) {
-						return D{}
-					}
-
-					clk := &clickers[i]
-					btn := material.Button(th, clk, fmt.Sprintf("%d", i))
-					color := color.NRGBA{
-						R: uint8(255 / colCount * row),
-						G: uint8(255 / colCount * col),
-						B: uint8(255 * row * col / (colCount * colCount)),
-						A: 255,
-					}
-					btn.Background = color
-					btn.CornerRadius = 0
-					return btn.Layout(gtx)
-				})
 
 			e.Frame(gtx.Ops)
 		}

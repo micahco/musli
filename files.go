@@ -1,7 +1,12 @@
 package main
 
 import (
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -30,4 +35,15 @@ func findAudioFilePaths(dir string) ([]string, error) {
 		return nil
 	})
 	return paths, err
+}
+
+func loadImage(path string) image.Image {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	image, _, _ := image.Decode(f)
+	return image
 }

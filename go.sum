@@ -17,6 +17,8 @@ github.com/go-text/typesetting v0.1.1 h1:bGAesCuo85nXnEN5LmFMVGAGpGkCPtHrZLi//qD
 github.com/go-text/typesetting v0.1.1/go.mod h1:d22AnmeKq/on0HNv73UFriMKc4Ez6EqZAofLhAzpSzI=
 github.com/go-text/typesetting-utils v0.0.0-20231211103740-d9332ae51f04 h1:zBx+p/W2aQYtNuyZNcTfinWvXBQwYtDfme051PR/lAY=
 github.com/go-text/typesetting-utils v0.0.0-20231211103740-d9332ae51f04/go.mod h1:DDxDdQEnB70R8owOx3LVpEFvpMK9eeH1o2r0yZhFI9o=
+github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
+github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
 github.com/mattn/go-sqlite3 v1.14.23 h1:gbShiuAP1W5j9UOksQ06aiiqPMxYecovVGwmTxWtuw0=
 github.com/mattn/go-sqlite3 v1.14.23/go.mod h1:Uh1q+B4BYcTPb+yiD3kU8Ct7aC0hY9fxUwlHK0RXw+Y=
 golang.org/x/exp v0.0.0-20240909161429-701f63a606c0 h1:e66Fs6Z+fZTbFBAxKfP3PALWBtpfqks2bwGcexMxgtk=

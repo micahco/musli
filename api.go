@@ -1,7 +1,8 @@
-package api
+package main
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/dhowden/tag"
+	"github.com/google/uuid"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -20,6 +22,7 @@ type Album struct {
 	ID          int64
 	AlbumArtist string
 	Name        string
+	PicturePath string
 	Year        int
 }
 
@@ -30,8 +33,22 @@ type Track struct {
 	Path        string
 }
 
-func New(appDir string) (API, error) {
-	db, err := loadDB(appDir)
+const PIC_DIR = "pictures"
+
+func NewAPI() (API, error) {
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		return API{}, err
+	}
+
+	path := filepath.Join(dir, APP_NAME, PIC_DIR)
+
+	err = os.MkdirAll(path, os.ModePerm)
+	if err != nil {
+		return API{}, err
+	}
+
+	db, err := loadDB()
 	if err != nil {
 		return API{}, err
 	}
@@ -39,18 +56,13 @@ func New(appDir string) (API, error) {
 	return API{db}, nil
 }
 
-func loadDB(appDir string) (*sql.DB, error) {
+func loadDB() (*sql.DB, error) {
 	dir, err := os.UserCacheDir()
 	if err != nil {
 		return nil, err
 	}
 
-	path := filepath.Join(dir, appDir, "library.db")
-
-	err = os.MkdirAll(filepath.Dir(path), os.ModePerm)
-	if err != nil {
-		return nil, err
-	}
+	path := filepath.Join(dir, APP_NAME, "library.db")
 
 	db, err := sql.Open("sqlite3", path)
 	if err != nil {
@@ -68,6 +80,7 @@ func loadDB(appDir string) (*sql.DB, error) {
 						id integer PRIMARY KEY,
 						album_artist TEXT,
 						name TEXT,
+						picture_path TEXT,
 						year INTEGER
 					);`)
 	if err != nil {
@@ -107,16 +120,35 @@ func (api API) Close() error {
 	return nil
 }
 
-func readMetadata(path string) (*Album, *Track, error) {
+// Copy picture (if exists) to the user data dir
+func loadPicture(p *tag.Picture) (string, error) {
+	if p == nil {
+		return "", nil
+	}
+
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		return "", err
+	}
+
+	// Generate unique file path
+	u := uuid.New().String()
+	filename := fmt.Sprintf("%s.%s", u, p.Ext)
+	path := filepath.Join(dir, APP_NAME, PIC_DIR, filename)
+
+	return path, os.WriteFile(path, p.Data, 0644)
+}
+
+func readMetadata(path string) (*Album, *Track, *tag.Picture, error) {
 	f, err := os.OpenFile(path, os.O_RDONLY, 0444)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	defer f.Close()
 
 	m, err := tag.ReadFrom(f)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	a := Album{
@@ -136,7 +168,7 @@ func readMetadata(path string) (*Album, *Track, error) {
 		TrackNumber: trackNumber,
 	}
 
-	return &a, &t, nil
+	return &a, &t, m.Picture(), nil
 }
 
 // Add track (and album, if not present) to library
@@ -145,11 +177,12 @@ func (api API) AddPathToLibrary(path string) error {
 	if err != nil {
 		return err
 	}
+
 	if trackID != -1 { // path already in db
 		return nil
 	}
 
-	a, t, err := readMetadata(path)
+	a, t, p, err := readMetadata(path)
 	if err != nil {
 		return err
 	}
@@ -159,6 +192,11 @@ func (api API) AddPathToLibrary(path string) error {
 		return err
 	}
 	if albumID == -1 { // album doesn't exist
+		a.PicturePath, err = loadPicture(p)
+		if err != nil {
+			return err
+		}
+
 		albumID, err = api.insertAlbum(a)
 		if err != nil {
 			return err
@@ -197,15 +235,17 @@ func (api API) findAlbumID(a *Album) (int64, error) {
 }
 
 func (api API) insertAlbum(a *Album) (int64, error) {
-	res, err := api.db.Exec(`INSERT INTO albums(album_artist,name,year)
-						VALUES(?,?,?);`, a.AlbumArtist, a.Name, a.Year)
+	res, err := api.db.Exec(`INSERT INTO albums(album_artist,name,picture_path,year)
+						VALUES(?,?,?,?);`, a.AlbumArtist, a.Name, a.PicturePath, a.Year)
 	if err != nil {
 		return -1, err
 	}
+
 	albumID, err := res.LastInsertId()
 	if err != nil {
 		return -1, err
 	}
+
 	return albumID, nil
 }
 
@@ -215,15 +255,18 @@ func (api API) insertTrack(t *Track) (int64, error) {
 	if err != nil {
 		return -1, err
 	}
+
 	trackID, err := res.LastInsertId()
 	if err != nil {
 		return -1, err
 	}
+
 	return trackID, nil
 }
 
 func (api API) DeleteTrack(path string) error {
 	_, err := api.db.Exec(`DELETE FROM tracks WHERE path = ?`, path)
+
 	return err
 }
 
@@ -265,7 +308,7 @@ func (api API) GetOneRandomAlbum() (*Album, error) {
 	row := api.db.QueryRow("SELECT * FROM albums ORDER BY RANDOM() LIMIT 1;")
 
 	var a Album
-	err := row.Scan(&a.ID, &a.AlbumArtist, &a.Name, &a.Year)
+	err := row.Scan(&a.ID, &a.AlbumArtist, &a.Name, &a.PicturePath, &a.Year)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil // No albums found
@@ -330,9 +373,10 @@ func (api API) SearchAlbums(query string) ([]Album, error) {
 	return albums, nil
 }
 
+// REFERENCE: https://eyed3.readthedocs.io/en/latest/compliance.html
 func readAltYearMetadata(m tag.Metadata) int {
-	// https://eyed3.readthedocs.io/en/latest/compliance.html
 	r := m.Raw()
+
 	tdor := (r["TDOR"]) // ID3 v2.4 orig release date
 	if tdorStr, ok := tdor.(string); ok {
 		yearStr := strings.Split(tdorStr, "-")[0]
@@ -341,18 +385,22 @@ func readAltYearMetadata(m tag.Metadata) int {
 			return year
 		}
 	}
+
 	tdrl := (r["TDRL"]) // ID3 v2.4 release date
 	if tdrlStr, ok := tdrl.(string); ok {
 		log.Println("TDRL", tdrlStr)
 	}
+
 	xdor := (r["XDOR"]) // ID3 v2.3 orig release year
 	if xdorStr, ok := xdor.(string); ok {
 		log.Println("XDOR", xdorStr)
 	}
+
 	tory := (r["TORY"]) // ID3 v2.3 orig release year
 	if toryStr, ok := tory.(string); ok {
 		log.Println("TORY", toryStr)
 	}
+
 	return 0
 }
 
@@ -392,7 +440,7 @@ func parseRowsToAlbums(rows *sql.Rows) ([]Album, error) {
 	var albums []Album
 	for rows.Next() {
 		var a Album
-		err := rows.Scan(&a.ID, &a.AlbumArtist, &a.Name, &a.Year)
+		err := rows.Scan(&a.ID, &a.AlbumArtist, &a.Name, &a.PicturePath, &a.Year)
 		if err != nil {
 			return nil, err
 		}
